@@ -1,3 +1,472 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMATA HALONG WORKFLOW</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; }
+        .amt-sidebar { background: #1e293b; color: white; transition: all 0.3s; }
+        .amt-content { transition: all 0.3s; }
+        .amt-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .amt-btn { transition: all 0.2s; }
+        .amt-btn:active { transform: scale(0.98); }
+        /* Table Styles */
+        .amt-table th { background-color: #f8fafc; color: #64748b; font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; }
+        .amt-table td { padding: 0.75rem 1rem; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: 0.875rem; }
+        .amt-table tr:last-child td { border-bottom: none; }
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .loader { border: 3px solid #f3f3f3; border-radius: 50%; border-top: 3px solid #3498db; width: 20px; height: 20px; -webkit-animation: spin 1s linear infinite; animation: spin 1s linear infinite; }
+        @-webkit-keyframes spin { 0% { -webkit-transform: rotate(0deg); } 100% { -webkit-transform: rotate(360deg); } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <!-- LOADING OVERLAY -->
+    <div id="loading" class="fixed inset-0 bg-white/80 z-[60] flex items-center justify-center hidden">
+        <div class="flex flex-col items-center gap-3">
+            <div class="loader w-10 h-10 border-4 border-blue-600 border-t-transparent"></div>
+            <span class="text-blue-700 font-semibold animate-pulse">Đang đồng bộ dữ liệu...</span>
+        </div>
+    </div>
+
+    <!-- AUTH SCREEN -->
+    <div id="auth-screen" class="min-h-screen flex items-center justify-center bg-slate-100 hidden">
+        <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md border border-gray-200">
+            <div class="text-center mb-6">
+                <div class="bg-blue-600 w-16 h-16 rounded-lg flex items-center justify-center mx-auto mb-4 shadow-blue-200 shadow-xl">
+                    <i data-lucide="layers" class="text-white w-8 h-8"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-slate-800">AMATA HALONG</h1>
+                <p class="text-gray-500 text-sm">Workflow Management System</p>
+            </div>
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tên đăng nhập</label>
+                    <input type="text" id="username" class="w-full border border-gray-300 px-4 py-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="Nhập username..." required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Mật khẩu</label>
+                    <input type="password" id="password" class="w-full border border-gray-300 px-4 py-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg transition shadow-lg shadow-blue-100 mt-2">Đăng nhập</button>
+            </form>
+            <p id="login-error" class="text-red-500 text-sm text-center mt-4 hidden"></p>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="app-screen" class="min-h-screen flex hidden">
+        <!-- SIDEBAR -->
+        <aside class="amt-sidebar w-64 flex-shrink-0 flex flex-col fixed h-full z-10">
+            <div class="h-16 flex items-center px-6 border-b border-slate-700/50 bg-slate-900">
+                <i data-lucide="activity" class="text-blue-400 mr-3"></i>
+                <span class="font-bold text-lg tracking-wide">AMATA WORKFLOW</span>
+            </div>
+            
+            <div class="p-4 border-b border-slate-700/50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-lg" id="avatar-initials">AD</div>
+                    <div class="overflow-hidden">
+                        <div class="font-bold text-sm truncate" id="user-name-display">Admin User</div>
+                        <div class="text-xs text-slate-400 truncate" id="user-role-display">Administrator</div>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="flex-1 overflow-y-auto py-4 space-y-1 px-3">
+                <a href="#" onclick="navigate('dashboard')" class="nav-item flex items-center px-3 py-2.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white group transition">
+                    <i data-lucide="layout-dashboard" class="w-5 h-5 mr-3 group-hover:text-blue-400 transition"></i> Dashboard
+                </a>
+                <a href="#" onclick="navigate('tasks')" class="nav-item flex items-center px-3 py-2.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white group transition">
+                    <i data-lucide="check-square" class="w-5 h-5 mr-3 group-hover:text-emerald-400 transition"></i> Quản lý giao việc
+                </a>
+                <a href="#" onclick="navigate('reports')" class="nav-item flex items-center px-3 py-2.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white group transition">
+                    <i data-lucide="bar-chart-3" class="w-5 h-5 mr-3 group-hover:text-purple-400 transition"></i> Báo cáo
+                </a>
+                <div class="my-2 border-t border-slate-700/50"></div>
+                <a href="#" onclick="navigate('users')" id="nav-users" class="nav-item flex items-center px-3 py-2.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white group transition hidden">
+                    <i data-lucide="users" class="w-5 h-5 mr-3 group-hover:text-amber-400 transition"></i> Quản lý nhân sự
+                </a>
+                <a href="#" onclick="navigate('settings')" class="nav-item flex items-center px-3 py-2.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white group transition">
+                    <i data-lucide="settings" class="w-5 h-5 mr-3 group-hover:text-gray-400 transition"></i> Cài đặt
+                </a>
+            </nav>
+
+            <div class="p-4 border-t border-slate-700/50 bg-slate-900/50">
+                <button onclick="logout()" class="flex items-center w-full px-3 py-2 rounded-lg text-red-400 hover:bg-red-500/10 transition">
+                    <i data-lucide="log-out" class="w-5 h-5 mr-3"></i> Đăng xuất
+                </button>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="flex-1 ml-64 bg-slate-50 min-h-screen flex flex-col">
+            <!-- HEADER -->
+            <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20 shadow-sm">
+                <h2 id="page-title" class="text-xl font-bold text-slate-800">Tổng quan</h2>
+                <div class="flex items-center gap-3">
+                    <button onclick="refreshData()" class="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition relative group">
+                        <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+                        <span class="absolute top-10 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap">Làm mới dữ liệu</span>
+                    </button>
+                    <div class="text-sm text-gray-500 italic flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                        Online
+                    </div>
+                </div>
+            </header>
+
+            <!-- CONTENT AREA -->
+            <div id="content-area" class="p-8 overflow-y-auto">
+                <!-- Dynamic Content Injected Here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL CONTAINER -->
+    <div id="modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center backdrop-blur-sm p-4">
+        <div id="modal-content" class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+            <!-- Modal body injected here -->
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script>
+        // --- CONFIGURATION ---
+        const BIN_ID = '67b938f3ad19ca34f80c6565'; 
+        const API_KEY = '$2a$10$wT0lH2vj.9/1XlPvn5yJ.u1Jg.Tj.v/d2Jg.Tj.v/d2Jg.Tj.v/d2'; // Placeholder
+        // NOTE: Please replace with your actual keys from JSONBin.io
+
+        // --- STATE MANAGEMENT ---
+        let STATE = {
+            users: [],
+            tasks: [],
+            projects: [],
+            currentUser: null,
+            settings: { lang: 'vi' }
+        };
+
+        const CONSTANTS = {
+            STATUS: {
+                TODO: { label: 'Đang xử lý', color: 'bg-blue-100 text-blue-700' },
+                COMPLETED: { label: 'Hoàn thành', color: 'bg-green-100 text-green-700' },
+                OVERDUE: { label: 'Quá hạn', color: 'bg-red-100 text-red-700' }
+            }
+        };
+
+        // --- UTILS ---
+        const $ = (s) => document.querySelector(s);
+        const $$ = (s) => document.querySelectorAll(s);
+        const uuid = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+        
+        // --- DATA SERVICE (JSONBIN) ---
+        const api = {
+            async get() {
+                // Check if user has configured keys in Settings, else use defaults (or prompt)
+                const binId = localStorage.getItem('jb_bin_id') || ''; 
+                const key = localStorage.getItem('jb_key') || '';
+                
+                if (!binId || !key) {
+                    // Fallback to local storage if no cloud keys
+                    const localData = localStorage.getItem('amata_data');
+                    if (localData) return JSON.parse(localData);
+                    // Default init data
+                    return {
+                        users: [{id: 'u1', empCode: 'AMT00001', name: 'Admin System', username: 'admin', password: '123', role: 'ADMIN', isFirst: true}],
+                        tasks: [], projects: []
+                    };
+                }
+
+                try {
+                    const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+                        headers: { 'X-Master-Key': key }
+                    });
+                    if (!res.ok) throw new Error('Network err');
+                    const data = await res.json();
+                    return data.record;
+                } catch (e) {
+                    console.error("Sync error:", e);
+                    alert("Lỗi kết nối dữ liệu Online. Vui lòng kiểm tra cấu hình.");
+                    return { users: [], tasks: [], projects: [] };
+                }
+            },
+            async save(data) {
+                const binId = localStorage.getItem('jb_bin_id') || '';
+                const key = localStorage.getItem('jb_key') || '';
+
+                if (binId && key) {
+                    await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'X-Master-Key': key },
+                        body: JSON.stringify(data)
+                    });
+                }
+                // Always backup to local
+                localStorage.setItem('amata_data', JSON.stringify(data));
+            }
+        };
+
+        const refreshData = async (silent = false) => {
+            if (!silent) $('#loading').classList.remove('hidden');
+            try {
+                const data = await api.get();
+                STATE.users = data.users || [];
+                STATE.tasks = data.tasks || [];
+                STATE.projects = data.projects || [];
+                
+                // Auto restore admin if missing
+                if (!STATE.users.find(u => u.role === 'ADMIN')) {
+                    STATE.users.push({id: 'u_admin_restore', empCode: 'AMT00001', name: 'Admin (Restored)', username: 'admin', password: '123', role: 'ADMIN'});
+                    await api.save({ ...data, users: STATE.users });
+                }
+
+                // If logged in, re-render current page
+                if (STATE.currentUser) {
+                     // Check if current page is modal to avoid disruption
+                     if ($('#modal').classList.contains('hidden')) {
+                         const currentPage = sessionStorage.getItem('currentPage') || 'dashboard';
+                         navigate(currentPage);
+                     }
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                if (!silent) $('#loading').classList.add('hidden');
+            }
+        };
+
+        // --- AUTH ---
+        const init = async () => {
+            await refreshData();
+            
+            // Check session
+            const savedUser = sessionStorage.getItem('currentUser');
+            if (savedUser) {
+                const userObj = JSON.parse(savedUser);
+                // Verify user still exists
+                const validUser = STATE.users.find(u => u.id === userObj.id);
+                if (validUser) {
+                    loginSuccess(validUser);
+                    return;
+                }
+            }
+
+            $('#auth-screen').classList.remove('hidden');
+            $('#app-screen').classList.add('hidden');
+
+            // Start Auto Refresh Loop (10s)
+            setInterval(() => {
+                if (STATE.currentUser) refreshData(true);
+            }, 10000);
+        };
+
+        const login = async (e) => {
+            e.preventDefault();
+            const u = $('#username').value;
+            const p = $('#password').value;
+            
+            const user = STATE.users.find(x => x.username === u && x.password === p);
+            if (user) {
+                // Check first login
+                if (user.isFirst) {
+                    const newPass = prompt("Đây là lần đăng nhập đầu tiên. Vui lòng đổi mật khẩu mới:");
+                    if (newPass && newPass.trim() !== "") {
+                        user.password = newPass;
+                        user.isFirst = false;
+                        await saveData();
+                        alert("Đổi mật khẩu thành công!");
+                    } else {
+                        alert("Bạn phải đổi mật khẩu để tiếp tục.");
+                        return;
+                    }
+                }
+                loginSuccess(user);
+            } else {
+                $('#login-error').textContent = 'Sai tên đăng nhập hoặc mật khẩu';
+                $('#login-error').classList.remove('hidden');
+            }
+        };
+
+        const loginSuccess = (user) => {
+            STATE.currentUser = user;
+            sessionStorage.setItem('currentUser', JSON.stringify(user));
+            
+            $('#auth-screen').classList.add('hidden');
+            $('#app-screen').classList.remove('hidden');
+            
+            // Update Sidebar UI
+            $('#user-name-display').textContent = user.name;
+            $('#user-role-display').textContent = user.role === 'ADMIN' ? 'Administrator' : 'Nhân viên';
+            $('#avatar-initials').textContent = user.name.substring(0,2).toUpperCase();
+            
+            if (user.role === 'ADMIN') {
+                $('#nav-users').classList.remove('hidden');
+            } else {
+                $('#nav-users').classList.add('hidden');
+            }
+
+            navigate('dashboard');
+        };
+
+        const logout = () => {
+            if (confirm('Bạn có chắc muốn đăng xuất?')) {
+                STATE.currentUser = null;
+                sessionStorage.removeItem('currentUser');
+                sessionStorage.removeItem('currentPage');
+                location.reload();
+            }
+        };
+
+        // --- NAVIGATION ---
+        const navigate = (page) => {
+            sessionStorage.setItem('currentPage', page);
+            const content = $('#content-area');
+            const title = $('#page-title');
+            
+            // Highlight nav
+            $$('.nav-item').forEach(el => el.classList.remove('bg-slate-800', 'text-white'));
+            // Find current nav item (simple check)
+            $$('.nav-item').forEach(el => {
+                if(el.getAttribute('onclick').includes(page)) el.classList.add('bg-slate-800', 'text-white');
+            });
+
+            lucide.createIcons();
+
+            switch(page) {
+                case 'dashboard':
+                    title.textContent = 'Tổng quan hệ thống';
+                    renderDashboard(content);
+                    break;
+                case 'tasks':
+                    title.textContent = 'Quản lý giao việc';
+                    renderTasks(content);
+                    break;
+                case 'reports':
+                    title.textContent = 'Báo cáo & Thống kê';
+                    renderReports(content);
+                    break;
+                case 'users':
+                    title.textContent = 'Quản lý nhân sự';
+                    renderUsers(content);
+                    break;
+                case 'settings':
+                    title.textContent = 'Thiết lập hệ thống';
+                    renderSettings(content);
+                    break;
+            }
+            lucide.createIcons();
+        };
+
+        // --- HELPERS ---
+        const saveData = async () => {
+            $('#loading').classList.remove('hidden');
+            await api.save({
+                users: STATE.users,
+                tasks: STATE.tasks,
+                projects: STATE.projects
+            });
+            $('#loading').classList.add('hidden');
+        };
+
+        const getTaskStatus = (t) => {
+            if (t.status === 'COMPLETED') return 'COMPLETED';
+            const today = new Date().toISOString().split('T')[0];
+            if (t.deadline < today) return 'OVERDUE';
+            return 'TODO';
+        };
+
+        // Helper to get array of assignees
+        const getAssignees = (t) => {
+            if (Array.isArray(t.assignedTo)) return t.assignedTo;
+            return t.assignedTo ? [t.assignedTo] : []; // Fallback for old data
+        };
+
+        // --- DASHBOARD ---
+        const renderDashboard = (el) => {
+            // Stats
+            const total = STATE.tasks.length;
+            const completed = STATE.tasks.filter(t => t.status === 'COMPLETED').length;
+            const overdue = STATE.tasks.filter(t => getTaskStatus(t) === 'OVERDUE').length;
+            const pending = total - completed;
+
+            // Generate Employee Cards
+            const empCards = STATE.users.map(u => {
+                // Logic: A user is involved if they are in assignedTo OR collaborators
+                const userTasks = STATE.tasks.filter(t => {
+                    const assignees = getAssignees(t);
+                    return assignees.includes(u.id) || (t.collaborators || []).includes(u.id);
+                });
+                
+                const uTotal = userTasks.length;
+                const uDone = userTasks.filter(t => t.status === 'COMPLETED').length;
+                const uOver = userTasks.filter(t => getTaskStatus(t) === 'OVERDUE').length;
+                const uProcess = uTotal - uDone;
+
+                return `
+                    <div class="amt-card p-4 border border-gray-100 hover:shadow-md transition">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-xs">${u.name.substring(0,2).toUpperCase()}</div>
+                            <div>
+                                <div class="font-bold text-slate-800 text-sm">${u.name}</div>
+                                <div class="text-xs text-slate-500">${u.empCode}</div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-center">
+                            <div class="bg-blue-50 rounded p-2">
+                                <div class="text-xs text-gray-500">Tổng việc</div>
+                                <div class="font-bold text-blue-700 text-lg">${uTotal}</div>
+                            </div>
+                            <div class="bg-green-50 rounded p-2">
+                                <div class="text-xs text-gray-500">Hoàn thành</div>
+                                <div class="font-bold text-green-700 text-lg">${uDone}</div>
+                            </div>
+                            <div class="bg-yellow-50 rounded p-2">
+                                <div class="text-xs text-gray-500">Đang làm</div>
+                                <div class="font-bold text-yellow-700 text-lg">${uProcess}</div>
+                            </div>
+                            <div class="bg-red-50 rounded p-2">
+                                <div class="text-xs text-gray-500">Quá hạn</div>
+                                <div class="font-bold text-red-700 text-lg">${uOver}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            el.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <div class="amt-card p-6 border-l-4 border-blue-500">
+                        <div class="text-gray-500 text-sm font-medium uppercase mb-1">Tổng công việc</div>
+                        <div class="text-3xl font-bold text-slate-800">${total}</div>
+                    </div>
+                    <div class="amt-card p-6 border-l-4 border-green-500">
+                        <div class="text-gray-500 text-sm font-medium uppercase mb-1">Đã hoàn thành</div>
+                        <div class="text-3xl font-bold text-slate-800">${completed}</div>
+                    </div>
+                    <div class="amt-card p-6 border-l-4 border-yellow-500">
+                        <div class="text-gray-500 text-sm font-medium uppercase mb-1">Đang xử lý</div>
+                        <div class="text-3xl font-bold text-slate-800">${pending}</div>
+                    </div>
+                    <div class="amt-card p-6 border-l-4 border-red-500">
+                        <div class="text-gray-500 text-sm font-medium uppercase mb-1">Quá hạn</div>
+                        <div class="text-3xl font-bold text-slate-800">${overdue}</div>
+                    </div>
+                </div>
+
+                <h3 class="font-bold text-slate-800 text-lg mb-4 flex items-center"><i data-lucide="users" class="w-5 h-5 mr-2"></i> Tiến độ nhân sự</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    ${empCards}
+                </div>
+            `;
+        };
 
         /* --- TASK MANAGEMENT --- */
         const renderTasks = (el) => {
@@ -5,20 +474,10 @@
 
             el.innerHTML = `
                 <div class="flex flex-col md:flex-row justify-between mb-4 items-center gap-3">
-                    <div class="flex flex-1 gap-2 items-center w-full">
-                        <div class="relative w-full md:w-64">
-                            <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4"></i>
-                            <input type="text" id="task-search" placeholder="Tìm tên việc, dự án..." class="border pl-9 p-2 rounded text-sm w-full shadow-sm outline-none focus:ring-2 focus:ring-blue-500">
-                        </div>
-
-                        ${isAdmin ? `
-                            <select id="task-assignee-filter" class="border p-2 rounded text-sm w-full md:w-56 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                                <option value="ALL">-- Tất cả nhân sự --</option>
-                                ${STATE.users.map(u => `<option value="${u.id}">${u.name}</option>`).join('')}
-                            </select>
-                        ` : ''}
+                    <div class="relative w-full md:w-64">
+                        <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4"></i>
+                        <input type="text" id="task-search" placeholder="Tìm tên việc, dự án..." class="border pl-9 p-2 rounded text-sm w-full shadow-sm outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
-
                     ${isAdmin ? `<button onclick="openTaskModal()" class="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition"><i data-lucide="plus"></i> Giao việc mới</button>` : ''}
                 </div>
 
@@ -47,9 +506,7 @@
             // Filter Logic
             const runFilter = () => {
                 const term = $('#task-search').value.toLowerCase();
-                const assigneeId = isAdmin ? $('#task-assignee-filter').value : 'ALL';
 
-                // Get initial list based on permissions
                 let visibleTasks = STATE.tasks.filter(t => {
                      const assignees = getAssignees(t);
                      const isAssigned = assignees.includes(STATE.currentUser.id);
@@ -57,24 +514,13 @@
                      return isAdmin || isAssigned || isCollab;
                 });
 
-                // Apply Filters
-                visibleTasks = visibleTasks.filter(t => {
-                    // 1. Text Filter (Title or Project Name)
-                    const pjName = t.projectId ? (STATE.projects.find(p=>p.id===t.projectId)?.name || '') : '';
-                    const matchText = t.title.toLowerCase().includes(term) || pjName.toLowerCase().includes(term);
+                if (term) {
+                    visibleTasks = visibleTasks.filter(t => {
+                         const pjName = t.projectId ? (STATE.projects.find(p=>p.id===t.projectId)?.name || '') : '';
+                         return t.title.toLowerCase().includes(term) || pjName.toLowerCase().includes(term);
+                    });
+                }
 
-                    // 2. Assignee Filter (Admin only)
-                    let matchAssignee = true;
-                    if (isAdmin && assigneeId !== 'ALL') {
-                        const assignees = getAssignees(t);
-                        // Filter if user is Assignee OR Collaborator
-                        matchAssignee = assignees.includes(assigneeId) || (t.collaborators && t.collaborators.includes(assigneeId));
-                    }
-
-                    return matchText && matchAssignee;
-                });
-
-                // Render Rows
                 const tbody = $('#task-tbody');
                 const noData = $('#no-tasks');
 
@@ -121,10 +567,585 @@
                 }
             };
 
-            // Bind events
             $('#task-search').onkeyup = runFilter;
-            if (isAdmin) $('#task-assignee-filter').onchange = runFilter;
-
-            // Run initially
             runFilter();
         };
+
+        const openTaskModal = (taskId = null) => {
+            const t = taskId ? STATE.tasks.find(x => x.id === taskId) : null;
+            const isEdit = !!t;
+
+            const modal = $('#modal');
+            const content = $('#modal-content');
+            modal.classList.remove('hidden');
+            
+            // Prepare Project Options
+            const projectOpts = STATE.projects.map(p => `<option value="${p.id}" ${t && t.projectId === p.id ? 'selected' : ''}>${p.name}</option>`).join('');
+
+            // Prepare User Checkboxes for Primary (Multiple allowed)
+            const currentAssignees = t ? getAssignees(t) : [];
+            const userChecks = STATE.users.map(u => `
+                <label class="flex items-center gap-2 p-2 border rounded hover:bg-gray-50 cursor-pointer">
+                    <input type="checkbox" name="assignees" value="${u.id}" ${currentAssignees.includes(u.id) ? 'checked' : ''} class="w-4 h-4 text-blue-600 rounded">
+                    <span class="text-sm">${u.name}</span>
+                </label>
+            `).join('');
+
+             // Prepare Collaborator Checkboxes
+            const currentCollabs = t ? (t.collaborators || []) : [];
+            const collabChecks = STATE.users.map(u => `
+                <label class="flex items-center gap-2 p-2 border rounded hover:bg-gray-50 cursor-pointer">
+                    <input type="checkbox" name="collabs" value="${u.id}" ${currentCollabs.includes(u.id) ? 'checked' : ''} class="w-4 h-4 text-green-600 rounded">
+                    <span class="text-sm">${u.name}</span>
+                </label>
+            `).join('');
+
+            content.innerHTML = `
+                <div class="p-6">
+                    <h3 class="text-xl font-bold mb-4 text-slate-800">${isEdit ? 'Cập nhật công việc' : 'Giao việc mới'}</h3>
+                    <form id="task-form" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Loại công việc</label>
+                                <select id="task-type" onchange="toggleProjectSelect(this.value)" class="w-full border p-2 rounded text-sm bg-white">
+                                    <option value="ADHOC" ${!t || !t.projectId ? 'selected' : ''}>Việc lẻ (Ad-hoc)</option>
+                                    <option value="PROJECT" ${t && t.projectId ? 'selected' : ''}>Theo dự án</option>
+                                </select>
+                            </div>
+                            <div id="project-select-wrapper" class="${!t || !t.projectId ? 'hidden' : ''}">
+                                <label class="block text-sm font-medium mb-1">Chọn dự án</label>
+                                <div class="flex gap-2">
+                                    <select id="task-project" class="w-full border p-2 rounded text-sm bg-white">
+                                        <option value="">-- Chọn dự án --</option>
+                                        ${projectOpts}
+                                    </select>
+                                    <button type="button" onclick="quickAddProject()" class="bg-blue-100 text-blue-600 px-3 rounded hover:bg-blue-200">+</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Tên công việc <span class="text-red-500">*</span></label>
+                            <input type="text" id="task-title" value="${t?.title || ''}" class="w-full border p-2 rounded text-sm outline-blue-500" required>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Nội dung thực hiện</label>
+                            <textarea id="task-content" class="w-full border p-2 rounded text-sm h-24 outline-blue-500" placeholder="Mô tả chi tiết công việc...">${t?.content || ''}</textarea>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Ngày giao</label>
+                                <input type="date" id="task-start" value="${t?.startDate || new Date().toISOString().split('T')[0]}" class="w-full border p-2 rounded text-sm outline-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Thời hạn (Deadline)</label>
+                                <input type="date" id="task-deadline" value="${t?.deadline || ''}" class="w-full border p-2 rounded text-sm outline-blue-500" required>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Chủ trì thực hiện (Có thể chọn nhiều)</label>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-32 overflow-y-auto border p-2 rounded">
+                                ${userChecks}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Nhân sự phối hợp</label>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-32 overflow-y-auto border p-2 rounded">
+                                ${collabChecks}
+                            </div>
+                        </div>
+
+                         <div>
+                            <label class="block text-sm font-medium mb-1">Ghi chú thêm</label>
+                            <textarea id="task-note" class="w-full border p-2 rounded text-sm h-16 outline-blue-500">${t?.note || ''}</textarea>
+                        </div>
+
+                        <div class="flex justify-end gap-3 mt-6 pt-4 border-t">
+                            <button type="button" onclick="$('#modal').classList.add('hidden')" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm">Hủy bỏ</button>
+                            <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 shadow">Lưu công việc</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            window.toggleProjectSelect = (val) => {
+                const wrap = $('#project-select-wrapper');
+                if (val === 'PROJECT') wrap.classList.remove('hidden');
+                else wrap.classList.add('hidden');
+            };
+
+            window.quickAddProject = async () => {
+                const name = prompt("Nhập tên dự án mới:");
+                if (name) {
+                    const newProj = { id: uuid(), name };
+                    STATE.projects.push(newProj);
+                    await saveData();
+                    openTaskModal(taskId); // Reload modal
+                }
+            };
+
+            $('#task-form').onsubmit = async (e) => {
+                e.preventDefault();
+                const type = $('#task-type').value;
+                const projectId = type === 'PROJECT' ? $('#task-project').value : null;
+                if (type === 'PROJECT' && !projectId) {
+                    alert("Vui lòng chọn dự án!");
+                    return;
+                }
+
+                // Get checked assignees
+                const checkedAssignees = Array.from(document.querySelectorAll('input[name="assignees"]:checked')).map(cb => cb.value);
+                if (checkedAssignees.length === 0) {
+                    alert("Vui lòng chọn ít nhất một người chủ trì!");
+                    return;
+                }
+
+                // Get checked collaborators
+                const checkedCollabs = Array.from(document.querySelectorAll('input[name="collabs"]:checked')).map(cb => cb.value);
+
+                const newTask = {
+                    id: t?.id || uuid(),
+                    title: $('#task-title').value,
+                    content: $('#task-content').value,
+                    projectId,
+                    assignedTo: checkedAssignees, // Array
+                    collaborators: checkedCollabs,
+                    note: $('#task-note').value,
+                    startDate: $('#task-start').value,
+                    deadline: $('#task-deadline').value,
+                    status: t?.status || 'TODO',
+                    // Retain old report data if edit
+                    reportResult: t?.reportResult || '',
+                    reportIssues: t?.reportIssues || '',
+                    reportNotes: t?.reportNotes || '',
+                    extensionDate: t?.extensionDate || '',
+                    extensionStatus: t?.extensionStatus || ''
+                };
+
+                if (isEdit) {
+                    const idx = STATE.tasks.findIndex(x => x.id === t.id);
+                    STATE.tasks[idx] = newTask;
+                } else {
+                    STATE.tasks.push(newTask);
+                }
+
+                await saveData();
+                $('#modal').classList.add('hidden');
+                renderTasks($('#content-area'));
+            };
+        };
+
+        const deleteTask = async (id) => {
+            if (confirm("Bạn có chắc chắn muốn xóa công việc này?")) {
+                STATE.tasks = STATE.tasks.filter(t => t.id !== id);
+                await saveData();
+                renderTasks($('#content-area'));
+            }
+        };
+
+        const viewTask = (id) => {
+            const t = STATE.tasks.find(x => x.id === id);
+            const assignees = getAssignees(t);
+            const assigneeNames = assignees.map(uid => STATE.users.find(u => u.id === uid)?.name).join(', ');
+            const collabNames = (t.collaborators || []).map(uid => STATE.users.find(u => u.id === uid)?.name).join(', ');
+            const pjName = t.projectId ? STATE.projects.find(p => p.id === t.projectId)?.name : 'Việc lẻ';
+            
+            // Logic: Show report form if Current User is in Assignees OR Collaborators
+            // (Even if they are admin)
+            const canReport = assignees.includes(STATE.currentUser.id) || (t.collaborators || []).includes(STATE.currentUser.id);
+            const isAdmin = STATE.currentUser.role === 'ADMIN';
+
+            const modal = $('#modal');
+            modal.classList.remove('hidden');
+            const content = $('#modal-content');
+
+            content.innerHTML = `
+                <div class="p-6">
+                    <div class="flex justify-between items-start mb-4">
+                         <div>
+                             <span class="text-xs font-bold px-2 py-1 rounded bg-blue-100 text-blue-700 uppercase">${pjName}</span>
+                             <h3 class="text-2xl font-bold text-slate-800 mt-2">${t.title}</h3>
+                         </div>
+                         <button onclick="$('#modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600"><i data-lucide="x"></i></button>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div class="space-y-3">
+                            <div><span class="text-xs text-gray-500 uppercase font-bold">Ngày giao</span> <div class="font-medium">${t.startDate}</div></div>
+                            <div><span class="text-xs text-gray-500 uppercase font-bold">Deadline</span> <div class="font-medium ${getTaskStatus(t)==='OVERDUE'?'text-red-600':''}">${t.deadline}</div></div>
+                            <div><span class="text-xs text-gray-500 uppercase font-bold">Chủ trì</span> <div class="font-medium text-blue-700">${assigneeNames}</div></div>
+                            <div><span class="text-xs text-gray-500 uppercase font-bold">Phối hợp</span> <div class="font-medium text-gray-700">${collabNames || '-'}</div></div>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded text-sm text-gray-700 whitespace-pre-wrap h-40 overflow-y-auto border">
+                            <div class="font-bold text-gray-500 mb-1">NỘI DUNG CÔNG VIỆC:</div>
+                            ${t.content || 'Không có mô tả.'}
+                            <div class="mt-4 pt-4 border-t border-gray-200">
+                                <div class="font-bold text-gray-500 mb-1">GHI CHÚ GIAO VIỆC:</div>
+                                <div class="italic">${t.note || 'Không có ghi chú.'}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- REPORTING SECTION -->
+                    <div class="border-t pt-4">
+                        <h4 class="font-bold text-lg mb-3 flex items-center gap-2"><i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i> Báo cáo tiến độ</h4>
+                        
+                        ${canReport ? `
+                            <form id="report-form" class="space-y-4 bg-blue-50/50 p-4 rounded border border-blue-100">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Kết quả thực hiện</label>
+                                    <textarea id="rep-result" class="w-full border p-2 rounded text-sm h-20 bg-white" placeholder="Nhập kết quả đã làm...">${t.reportResult || ''}</textarea>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1">Vướng mắc / Đề xuất</label>
+                                        <textarea id="rep-issue" class="w-full border p-2 rounded text-sm h-20 bg-white">${t.reportIssues || ''}</textarea>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1">Ghi chú cá nhân</label>
+                                        <textarea id="rep-note" class="w-full border p-2 rounded text-sm h-20 bg-white">${t.reportNotes || ''}</textarea>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-end gap-4">
+                                     <div class="flex-1">
+                                        <label class="block text-sm font-medium mb-1">Đề xuất gia hạn đến ngày</label>
+                                        <div class="flex gap-2">
+                                            <input type="date" id="rep-ext-date" value="${t.extensionDate || ''}" class="border p-2 rounded text-sm bg-white w-full">
+                                            <button type="button" onclick="requestExtension('${t.id}')" class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded text-xs font-bold whitespace-nowrap">Gửi yêu cầu</button>
+                                        </div>
+                                        ${t.extensionStatus ? `<div class="text-xs mt-1 ${t.extensionStatus==='PENDING'?'text-yellow-600':'text-green-600'}">Trạng thái: ${t.extensionStatus}</div>` : ''}
+                                     </div>
+                                </div>
+
+                                <div class="flex justify-end gap-3 mt-4">
+                                     ${t.status !== 'COMPLETED' ? `
+                                        <button type="button" onclick="markCompleted('${t.id}')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 shadow-sm"><i data-lucide="check-circle" class="w-4 h-4"></i> Đã hoàn thành</button>
+                                     ` : '<span class="text-green-600 font-bold flex items-center px-4 py-2 bg-green-50 rounded border border-green-200"><i data-lucide="check" class="w-4 h-4 mr-2"></i> Đã hoàn thành</span>'}
+                                     
+                                     <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold shadow-sm">Lưu báo cáo</button>
+                                </div>
+                            </form>
+                        ` : `
+                            <!-- READ ONLY VIEW FOR OTHERS -->
+                            <div class="bg-gray-50 p-4 rounded border space-y-3">
+                                <div><span class="font-bold text-sm">Kết quả:</span> <span class="text-sm">${t.reportResult || '(Chưa cập nhật)'}</span></div>
+                                <div><span class="font-bold text-sm">Vướng mắc:</span> <span class="text-sm text-red-600">${t.reportIssues || 'Không'}</span></div>
+                                ${t.extensionStatus === 'PENDING' && isAdmin ? `
+                                    <div class="bg-yellow-50 border border-yellow-200 p-3 rounded flex items-center justify-between">
+                                        <div>
+                                            <span class="font-bold text-yellow-800 text-sm">Yêu cầu gia hạn đến: ${t.extensionDate}</span>
+                                        </div>
+                                        <div class="flex gap-2">
+                                            <button onclick="approveExtension('${t.id}', true)" class="bg-green-600 text-white px-3 py-1 rounded text-xs">Duyệt</button>
+                                            <button onclick="approveExtension('${t.id}', false)" class="bg-red-600 text-white px-3 py-1 rounded text-xs">Từ chối</button>
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+
+            if (canReport) {
+                $('#report-form').onsubmit = async (e) => {
+                    e.preventDefault();
+                    await saveReportLogic(id);
+                    alert("Đã lưu báo cáo!");
+                };
+            }
+        };
+
+        const saveReportLogic = async (taskId) => {
+             const tIndex = STATE.tasks.findIndex(x => x.id === taskId);
+             if (tIndex === -1) return;
+             
+             STATE.tasks[tIndex].reportResult = $('#rep-result').value;
+             STATE.tasks[tIndex].reportIssues = $('#rep-issue').value;
+             STATE.tasks[tIndex].reportNotes = $('#rep-note').value;
+             await saveData();
+        };
+
+        const markCompleted = async (taskId) => {
+            if (confirm("Xác nhận công việc đã hoàn thành?")) {
+                await saveReportLogic(taskId); // Save current text inputs first
+                const tIndex = STATE.tasks.findIndex(x => x.id === taskId);
+                STATE.tasks[tIndex].status = 'COMPLETED';
+                await saveData();
+                viewTask(taskId); // Refresh modal
+                renderTasks($('#content-area')); // Refresh list
+            }
+        };
+
+        window.requestExtension = async (taskId) => {
+            const date = $('#rep-ext-date').value;
+            if (!date) return alert("Vui lòng chọn ngày!");
+            const tIndex = STATE.tasks.findIndex(x => x.id === taskId);
+            STATE.tasks[tIndex].extensionDate = date;
+            STATE.tasks[tIndex].extensionStatus = 'PENDING';
+            await saveData();
+            alert("Đã gửi yêu cầu gia hạn!");
+            viewTask(taskId);
+        };
+
+        window.approveExtension = async (taskId, approved) => {
+            const tIndex = STATE.tasks.findIndex(x => x.id === taskId);
+            const t = STATE.tasks[tIndex];
+            
+            if (approved) {
+                t.deadline = t.extensionDate;
+                t.extensionStatus = 'APPROVED';
+            } else {
+                t.extensionStatus = 'REJECTED';
+            }
+            await saveData();
+            viewTask(taskId);
+            renderTasks($('#content-area'));
+        };
+
+
+        /* --- REPORT MODULE --- */
+        const renderReports = (el) => {
+             // Calculate Stats
+             const total = STATE.tasks.length;
+             const done = STATE.tasks.filter(t => t.status === 'COMPLETED').length;
+             const rate = total > 0 ? Math.round((done/total)*100) : 0;
+
+             el.innerHTML = `
+                <div class="mb-6 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg font-bold">Thống kê chung</h3>
+                        <p class="text-sm text-gray-500">Tỷ lệ hoàn thành toàn hệ thống: ${rate}%</p>
+                    </div>
+                    <button onclick="exportExcel()" class="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded text-sm flex items-center"><i data-lucide="file-spreadsheet" class="w-4 h-4 mr-2"></i> Xuất Excel</button>
+                </div>
+
+                <div class="bg-white rounded shadow overflow-hidden">
+                    <table class="w-full amt-table">
+                        <thead>
+                            <tr>
+                                <th>Nhân viên</th>
+                                <th class="text-center">Tổng việc</th>
+                                <th class="text-center">Hoàn thành</th>
+                                <th class="text-center">Tỷ lệ</th>
+                                <th class="text-center">Quá hạn</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${STATE.users.map(u => {
+                                const myTasks = STATE.tasks.filter(t => getAssignees(t).includes(u.id));
+                                const total = myTasks.length;
+                                const done = myTasks.filter(t => t.status === 'COMPLETED').length;
+                                const over = myTasks.filter(t => getTaskStatus(t) === 'OVERDUE').length;
+                                const p = total > 0 ? Math.round((done/total)*100) : 0;
+                                return `
+                                    <tr>
+                                        <td>
+                                            <div class="font-bold">${u.name}</div>
+                                            <div class="text-xs text-gray-500">${u.empCode}</div>
+                                        </td>
+                                        <td class="text-center font-bold">${total}</td>
+                                        <td class="text-center text-green-600 font-bold">${done}</td>
+                                        <td class="text-center">
+                                            <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-200 mt-1">
+                                                <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${p}%"></div>
+                                            </div>
+                                            <div class="text-xs mt-1 font-bold">${p}%</div>
+                                        </td>
+                                        <td class="text-center text-red-600 font-bold">${over}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+             `;
+        };
+
+        window.exportExcel = () => {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Ma nhan vien,Ten nhan vien,Tong viec,Hoan thanh,Ty le (%),Qua han\n";
+            STATE.users.forEach(u => {
+                const myTasks = STATE.tasks.filter(t => getAssignees(t).includes(u.id));
+                const total = myTasks.length;
+                const done = myTasks.filter(t => t.status === 'COMPLETED').length;
+                const over = myTasks.filter(t => getTaskStatus(t) === 'OVERDUE').length;
+                const p = total > 0 ? Math.round((done/total)*100) : 0;
+                csvContent += `${u.empCode},${u.name},${total},${done},${p},${over}\n`;
+            });
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "bao_cao_tong_hop.csv");
+            document.body.appendChild(link);
+            link.click();
+        };
+
+        /* --- USER MANAGEMENT --- */
+        const renderUsers = (el) => {
+            el.innerHTML = `
+                <div class="flex justify-end mb-4">
+                    <button onclick="openUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold shadow"><i data-lucide="plus"></i> Thêm nhân sự</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    ${STATE.users.map(u => `
+                        <div class="amt-card p-5 relative group">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-lg">${u.name.substring(0,2).toUpperCase()}</div>
+                                <div>
+                                    <div class="font-bold text-slate-800">${u.name}</div>
+                                    <div class="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded inline-block mt-1">${u.empCode}</div>
+                                    <div class="text-xs text-gray-500 mt-1 capitalize">${u.role.toLowerCase()}</div>
+                                </div>
+                            </div>
+                            
+                            <!-- ACTIONS -->
+                            <div class="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition">
+                                <button onclick="openUserModal('${u.id}')" class="p-1.5 bg-amber-100 text-amber-600 rounded hover:bg-amber-200"><i data-lucide="edit-2" class="w-4 h-4"></i></button>
+                                ${STATE.currentUser.role === 'ADMIN' && u.id !== STATE.currentUser.id && u.role !== 'ADMIN' ? `<button onclick="deleteUser('${u.id}')" class="p-1.5 bg-red-100 text-red-600 rounded hover:bg-red-200"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        };
+
+        const openUserModal = (id = null) => {
+            const u = id ? STATE.users.find(x => x.id === id) : null;
+            const isEdit = !!u;
+            const nextCode = !isEdit ? `AMT${String(STATE.users.length + 1).padStart(5, '0')}` : '';
+
+            const modal = $('#modal');
+            modal.classList.remove('hidden');
+            $('#modal-content').innerHTML = `
+                 <div class="p-6">
+                    <h3 class="text-xl font-bold mb-4 text-slate-800">${isEdit ? 'Sửa thông tin' : 'Thêm nhân sự mới'}</h3>
+                    <form id="user-form" class="space-y-4">
+                        ${!isEdit ? `<div class="bg-gray-100 p-2 rounded text-center font-mono text-sm mb-4 font-bold text-gray-600">Mã nhân viên tự động: ${nextCode}</div>` : ''}
+                        
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Họ và tên</label>
+                            <input type="text" id="u-name" value="${u?.name || ''}" class="w-full border p-2 rounded text-sm outline-blue-500" required>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                             <div>
+                                <label class="block text-sm font-medium mb-1">Tên đăng nhập</label>
+                                <input type="text" id="u-user" value="${u?.username || ''}" ${isEdit ? 'disabled' : ''} class="w-full border p-2 rounded text-sm outline-blue-500 ${isEdit?'bg-gray-100':''}" required>
+                            </div>
+                             <div>
+                                <label class="block text-sm font-medium mb-1">Mật khẩu ${isEdit ? '(Để trống nếu ko đổi)' : ''}</label>
+                                <input type="password" id="u-pass" class="w-full border p-2 rounded text-sm outline-blue-500" ${!isEdit ? 'required' : ''}>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Vai trò</label>
+                            <select id="u-role" class="w-full border p-2 rounded text-sm bg-white">
+                                <option value="STAFF" ${u?.role==='STAFF'?'selected':''}>Nhân viên (Staff)</option>
+                                <option value="ADMIN" ${u?.role==='ADMIN'?'selected':''}>Quản trị viên (Admin)</option>
+                            </select>
+                        </div>
+
+                        <div class="flex justify-end gap-3 mt-6 pt-4 border-t">
+                            <button type="button" onclick="$('#modal').classList.add('hidden')" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm">Hủy</button>
+                            <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded text-sm font-bold hover:bg-blue-700 shadow">Lưu lại</button>
+                        </div>
+                    </form>
+                 </div>
+            `;
+
+            $('#user-form').onsubmit = async (e) => {
+                e.preventDefault();
+                const name = $('#u-name').value;
+                const role = $('#u-role').value;
+                const pass = $('#u-pass').value;
+
+                if (isEdit) {
+                    const idx = STATE.users.findIndex(x => x.id === id);
+                    STATE.users[idx].name = name;
+                    STATE.users[idx].role = role;
+                    if (pass) STATE.users[idx].password = pass;
+                } else {
+                    // Check username duplicate
+                    if (STATE.users.find(x => x.username === $('#u-user').value)) {
+                        alert("Tên đăng nhập đã tồn tại!");
+                        return;
+                    }
+                    STATE.users.push({
+                        id: uuid(),
+                        empCode: nextCode,
+                        name,
+                        username: $('#u-user').value,
+                        password: pass,
+                        role,
+                        isFirst: true
+                    });
+                }
+                await saveData();
+                $('#modal').classList.add('hidden');
+                renderUsers($('#content-area'));
+            };
+        };
+
+        const deleteUser = async (id) => {
+            if (confirm("Xóa nhân sự này?")) {
+                STATE.users = STATE.users.filter(u => u.id !== id);
+                await saveData();
+                renderUsers($('#content-area'));
+            }
+        };
+
+        /* --- SETTINGS --- */
+        const renderSettings = (el) => {
+             // Load current config
+             const binId = localStorage.getItem('jb_bin_id') || '';
+             const key = localStorage.getItem('jb_key') || '';
+
+             el.innerHTML = `
+                <div class="max-w-xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+                    <h3 class="text-xl font-bold mb-6 text-slate-800">Cấu hình hệ thống</h3>
+                    <div class="bg-blue-50 p-4 rounded-lg mb-6 text-sm text-blue-800 flex gap-3">
+                         <i data-lucide="cloud" class="flex-shrink-0"></i>
+                         <div>
+                            <strong>Cloud Database (JSONBin.io)</strong>
+                            <p class="mt-1">Để dữ liệu được đồng bộ Online, vui lòng nhập Bin ID và API Key của bạn từ JsonBin.</p>
+                         </div>
+                    </div>
+                    
+                    <form id="settings-form" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Bin ID (Database ID)</label>
+                            <input type="text" id="s-bin" value="${binId}" class="w-full border p-2 rounded outline-blue-500 font-mono text-sm" placeholder="Ex: 65d4a...">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">X-Master-Key (API Secret)</label>
+                            <input type="password" id="s-key" value="${key}" class="w-full border p-2 rounded outline-blue-500 font-mono text-sm" placeholder="Ex: $2a$10$...">
+                        </div>
+                        <button type="submit" class="w-full bg-slate-800 text-white font-bold py-3 rounded hover:bg-slate-900 transition">Lưu cấu hình & Kết nối</button>
+                    </form>
+                    <div class="text-center text-xs text-gray-400 mt-4">Phiên bản 2.1.0 - HTML5 Standalone</div>
+                </div>
+             `;
+             
+             $('#settings-form').onsubmit = (e) => {
+                 e.preventDefault();
+                 localStorage.setItem('jb_bin_id', $('#s-bin').value);
+                 localStorage.setItem('jb_key', $('#s-key').value);
+                 alert("Đã lưu cấu hình! Hệ thống sẽ tải lại để kết nối.");
+                 location.reload();
+             };
+        };
+
+        // --- INIT ---
+        window.onload = init;
+    </script>
+</body>
+</html>
