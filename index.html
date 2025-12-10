@@ -25,6 +25,11 @@
         .amt-table th { background-color: #f8fafc; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding: 0.75rem 1rem; }
         .amt-table td { padding: 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.875rem; color: #334155; }
         .amt-table tr:hover { background-color: #f1f5f9; }
+        
+        /* Custom Scrollbar for modal */
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
     </style>
 </head>
 <body class="h-screen flex overflow-hidden text-slate-800">
@@ -110,6 +115,12 @@
                         STATE.users = json.record.users || [];
                         STATE.tasks = json.record.tasks || [];
                         STATE.projects = json.record.projects || [];
+                        
+                        // Auto Restore Admin if deleted
+                        if (!STATE.users.some(u => u.role === 'ADMIN')) {
+                             STATE.users.push({id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false});
+                             await DB.save();
+                        }
                     }
                 } catch (e) {
                     Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Bin ID và API Key', 'error');
@@ -188,7 +199,7 @@
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
                         <div class="mt-6 text-xs text-center text-gray-400">
-                            Version 2.0 - Online Cloud Database
+                            Version 2.1 - Enhanced Task Module
                         </div>
                     </div>
                 </div>
@@ -352,7 +363,8 @@
 
             // Calculate Staff Stats
             const staffStats = STATE.users.filter(u => u.role === 'STAFF').map(u => {
-                const myTasks = tasks.filter(t => t.assignedTo === u.id);
+                // Count tasks where user is Main Assignee or Collaborator
+                const myTasks = tasks.filter(t => t.assignedTo === u.id || (t.collaborators && t.collaborators.includes(u.id)));
                 const done = myTasks.filter(t => t.status === 'COMPLETED').length;
                 return { name: u.name, total: myTasks.length, done: done, overdue: myTasks.filter(t => getTaskStatus(t) === 'OVERDUE').length };
             });
@@ -375,7 +387,7 @@
                             <thead>
                                 <tr>
                                     <th>Nhân viên</th>
-                                    <th class="text-center">Tổng việc được giao</th>
+                                    <th class="text-center">Tổng việc tham gia</th>
                                     <th class="text-center">Đã hoàn thành</th>
                                     <th class="text-center">Tỷ lệ</th>
                                     <th class="text-center">Đang nợ (Quá hạn)</th>
@@ -420,7 +432,12 @@
         /* --- TASK MANAGEMENT --- */
         const renderTasks = (el) => {
             const isAdmin = STATE.currentUser.role === 'ADMIN';
-            const tasks = STATE.tasks.filter(t => isAdmin || t.assignedTo === STATE.currentUser.id);
+            // Show task if Admin OR Assigned To OR Is Collaborator
+            const tasks = STATE.tasks.filter(t => 
+                isAdmin || 
+                t.assignedTo === STATE.currentUser.id || 
+                (t.collaborators && t.collaborators.includes(STATE.currentUser.id))
+            );
             
             el.innerHTML = `
                 <div class="flex justify-between mb-4">
@@ -436,7 +453,8 @@
                             <tr>
                                 <th>Loại</th>
                                 <th>Tiêu đề / Dự án</th>
-                                <th>Người làm</th>
+                                <th>Chủ trì</th>
+                                <th>Phối hợp</th>
                                 <th>Ngày giao</th>
                                 <th>Hạn chót</th>
                                 <th>Trạng thái</th>
@@ -447,6 +465,7 @@
                             ${tasks.map(t => {
                                 const st = CONSTANTS.STATUS[getTaskStatus(t)];
                                 const assignee = STATE.users.find(u => u.id === t.assignedTo)?.name || 'N/A';
+                                const collabCount = (t.collaborators || []).length;
                                 const pj = t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : 'Việc lẻ';
                                 
                                 return `
@@ -454,16 +473,17 @@
                                     <td><span class="text-[10px] uppercase font-bold px-2 py-1 rounded border ${t.projectId ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-600 border-gray-100'}">${t.projectId ? 'Dự án' : 'Lẻ'}</span></td>
                                     <td>
                                         <div class="font-bold text-slate-700 hover:text-blue-600 cursor-pointer" onclick="viewTask('${t.id}')">${t.title}</div>
-                                        <div class="text-xs text-gray-500">${pj}</div>
+                                        <div class="text-xs text-gray-500 truncate max-w-[200px]">${pj}</div>
                                     </td>
-                                    <td>${assignee}</td>
+                                    <td class="font-medium text-blue-900">${assignee}</td>
+                                    <td class="text-xs text-gray-500">${collabCount > 0 ? `+${collabCount} nhân sự` : '-'}</td>
                                     <td>${t.startDate}</td>
                                     <td>
                                         <span class="${getTaskStatus(t)==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline}</span>
                                     </td>
                                     <td><span class="text-xs font-bold px-2 py-1 rounded ${st.color}">${st.label}</span></td>
                                     <td class="text-center">
-                                        <button onclick="viewTask('${t.id}')" class="text-blue-600 hover:bg-blue-50 p-1 rounded" title="Xem"><i data-lucide="eye" width="16"></i></button>
+                                        <button onclick="viewTask('${t.id}')" class="text-blue-600 hover:bg-blue-50 p-1 rounded" title="Xem chi tiết"><i data-lucide="eye" width="16"></i></button>
                                         ${isAdmin ? `
                                             <button onclick="editTask('${t.id}')" class="text-amber-600 hover:bg-amber-50 p-1 rounded" title="Sửa"><i data-lucide="edit-3" width="16"></i></button>
                                             <button onclick="deleteTask('${t.id}')" class="text-red-600 hover:bg-red-50 p-1 rounded" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>
@@ -475,6 +495,7 @@
                     </table>
                 </div>
             `;
+            lucide.createIcons();
         };
 
         /* --- USERS --- */
@@ -507,7 +528,7 @@
                                     <td><span class="px-2 py-0.5 rounded text-xs font-bold ${u.role==='ADMIN'?'bg-purple-100 text-purple-600':'bg-green-100 text-green-600'}">${u.role}</span></td>
                                     <td class="text-center">
                                         <button onclick="resetPass('${u.id}')" class="text-amber-600 p-1 hover:bg-amber-50" title="Reset Password"><i data-lucide="key" width="16"></i></button>
-                                        ${u.role !== 'ADMIN' ? `<button onclick="deleteUser('${u.id}')" class="text-red-600 p-1 hover:bg-red-50" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>` : ''}
+                                        ${u.role !== 'ADMIN' || STATE.users.filter(x=>x.role==='ADMIN').length > 1 ? `<button onclick="deleteUser('${u.id}')" class="text-red-600 p-1 hover:bg-red-50" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>` : ''}
                                     </td>
                                 </tr>
                             `).join('')}
@@ -515,20 +536,25 @@
                     </table>
                 </div>
             `;
+            lucide.createIcons();
         };
 
         /* --- REPORTS --- */
         const renderReports = (el) => {
             const data = STATE.tasks.map(t => {
                 const u = STATE.users.find(x => x.id === t.assignedTo);
+                const collabs = (t.collaborators || []).map(cid => STATE.users.find(x=>x.id===cid)?.name).join(', ');
                 return {
                     "Mã việc": t.id,
                     "Dự án": t.projectId ? (STATE.projects.find(p=>p.id===t.projectId)?.name) : "Việc lẻ",
                     "Đầu việc": t.title,
-                    "Người thực hiện": u ? u.name : "N/A",
+                    "Nội dung": t.description || '',
+                    "Chủ trì": u ? u.name : "N/A",
+                    "Phối hợp": collabs,
                     "Ngày giao": t.startDate,
                     "Hạn chót": t.deadline,
-                    "Trạng thái": CONSTANTS.STATUS[getTaskStatus(t)].label
+                    "Trạng thái": CONSTANTS.STATUS[getTaskStatus(t)].label,
+                    "Ghi chú": t.notes || ''
                 };
             });
 
@@ -553,15 +579,16 @@
                     <div class="overflow-auto max-h-96">
                         <table class="w-full amt-table text-left">
                             <thead class="sticky top-0 z-10 shadow-sm">
-                                <tr><th>Đầu việc</th><th>Người làm</th><th>Trạng thái</th></tr>
+                                <tr><th>Đầu việc</th><th>Chủ trì</th><th>Hạn chót</th><th>Trạng thái</th></tr>
                             </thead>
                             <tbody>
-                                ${data.map(r => `<tr><td>${r["Đầu việc"]}</td><td>${r["Người thực hiện"]}</td><td>${r["Trạng thái"]}</td></tr>`).join('')}
+                                ${data.map(r => `<tr><td>${r["Đầu việc"]}</td><td>${r["Chủ trì"]}</td><td>${r["Hạn chót"]}</td><td>${r["Trạng thái"]}</td></tr>`).join('')}
                             </tbody>
                         </table>
                     </div>
                 </div>
             `;
+            lucide.createIcons();
         };
 
         /* --- SETTINGS --- */
@@ -634,71 +661,112 @@
 
         window.openTaskModal = (editId = null) => {
             const task = editId ? STATE.tasks.find(t => t.id === editId) : null;
-            const staffOpts = STATE.users.filter(u=>u.role==='STAFF').map(u=>`<option value="${u.id}" ${task?.assignedTo===u.id?'selected':''}>${u.name}</option>`).join('');
+            
+            // Build Staff Options for Primary Assignee
+            const staffOpts = STATE.users.filter(u=>u.role==='STAFF').map(u=>
+                `<option value="${u.id}" ${task?.assignedTo===u.id?'selected':''}>${u.name}</option>`
+            ).join('');
+
+            // Build Staff Checkboxes for Collaborators
+            const currentCollabs = task?.collaborators || [];
+            const collabChecks = STATE.users.filter(u=>u.role==='STAFF').map(u => `
+                <label class="flex items-center space-x-2 text-sm p-1 hover:bg-gray-50 rounded cursor-pointer">
+                    <input type="checkbox" class="collab-checkbox w-4 h-4 text-blue-600" value="${u.id}" ${currentCollabs.includes(u.id)?'checked':''}>
+                    <span class="text-slate-700">${u.name}</span>
+                </label>
+            `).join('');
             
             Swal.fire({
                 title: editId ? 'Sửa công việc' : 'Giao việc mới',
+                width: '700px',
                 html: `
-                    <div class="text-left space-y-3">
-                        <div>
-                            <label class="block text-xs font-bold mb-1">Tiêu đề việc</label>
-                            <input id="swal-title" class="swal2-input m-0 w-full" placeholder="Nhập tên đầu việc" value="${task?.title||''}">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
+                    <div class="text-left space-y-3 p-1">
+                        <div class="grid grid-cols-2 gap-3">
                              <div>
-                                <label class="block text-xs font-bold mb-1">Loại hình</label>
-                                <select id="swal-type" class="swal2-input m-0 w-full" onchange="this.value==='project'?document.getElementById('pj-group').classList.remove('hidden'):document.getElementById('pj-group').classList.add('hidden')">
-                                    <option value="adhoc" ${!task?.projectId?'selected':''}>Việc lẻ</option>
-                                    <option value="project" ${task?.projectId?'selected':''}>Dự án</option>
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Loại hình công việc</label>
+                                <select id="swal-type" class="swal2-input m-0 w-full h-10 text-sm" onchange="this.value==='project'?document.getElementById('pj-group').classList.remove('hidden'):document.getElementById('pj-group').classList.add('hidden')">
+                                    <option value="adhoc" ${!task?.projectId?'selected':''}>Việc lẻ (Ad-hoc)</option>
+                                    <option value="project" ${task?.projectId?'selected':''}>Việc theo Dự án</option>
                                 </select>
                             </div>
                             <div id="pj-group" class="${!task?.projectId?'hidden':''}">
-                                <label class="block text-xs font-bold mb-1">Tên Dự án</label>
-                                <input id="swal-pj" class="swal2-input m-0 w-full" placeholder="Tên dự án" value="${task?.projectId ? STATE.projects.find(p=>p.id===task.projectId)?.name : ''}">
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Tên Dự án</label>
+                                <input id="swal-pj" class="swal2-input m-0 w-full h-10 text-sm" placeholder="Nhập tên dự án..." value="${task?.projectId ? STATE.projects.find(p=>p.id===task.projectId)?.name : ''}">
                             </div>
                         </div>
-                        <div class="grid grid-cols-2 gap-2">
+
+                        <div>
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Tên đầu việc <span class="text-red-500">*</span></label>
+                            <input id="swal-title" class="swal2-input m-0 w-full h-10 text-sm" placeholder="VD: Báo cáo tài chính Q1" value="${task?.title||''}">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Nội dung thực hiện</label>
+                            <textarea id="swal-desc" class="swal2-textarea m-0 w-full text-sm h-24" placeholder="Mô tả chi tiết công việc...">${task?.description || ''}</textarea>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-bold mb-1">Ngày bắt đầu</label>
-                                <input type="date" id="swal-start" class="swal2-input m-0 w-full" value="${task?.startDate||new Date().toISOString().slice(0,10)}">
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Ngày giao việc</label>
+                                <input type="date" id="swal-start" class="swal2-input m-0 w-full h-10 text-sm" value="${task?.startDate||new Date().toISOString().slice(0,10)}">
                             </div>
                              <div>
-                                <label class="block text-xs font-bold mb-1">Hạn hoàn thành</label>
-                                <input type="date" id="swal-end" class="swal2-input m-0 w-full" value="${task?.deadline||''}">
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Thời hạn hoàn thành <span class="text-red-500">*</span></label>
+                                <input type="date" id="swal-end" class="swal2-input m-0 w-full h-10 text-sm" value="${task?.deadline||''}">
                             </div>
                         </div>
-                        <div>
-                            <label class="block text-xs font-bold mb-1">Giao cho nhân sự</label>
-                            <select id="swal-assign" class="swal2-input m-0 w-full">${staffOpts}</select>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Cá nhân chủ trì <span class="text-red-500">*</span></label>
+                                <select id="swal-assign" class="swal2-input m-0 w-full h-10 text-sm">${staffOpts}</select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Trạng thái</label>
+                                <select id="swal-status" class="swal2-input m-0 w-full h-10 text-sm" ${!editId ? 'disabled' : ''}>
+                                    <option value="TODO" ${task?.status==='TODO'?'selected':''}>Mới tạo</option>
+                                    <option value="IN_PROGRESS" ${task?.status==='IN_PROGRESS'?'selected':''}>Đang thực hiện</option>
+                                    <option value="COMPLETED" ${task?.status==='COMPLETED'?'selected':''}>Hoàn thành</option>
+                                </select>
+                            </div>
                         </div>
-                        ${editId ? `
+
                         <div>
-                            <label class="block text-xs font-bold mb-1">Trạng thái</label>
-                            <select id="swal-status" class="swal2-input m-0 w-full">
-                                <option value="TODO" ${task.status==='TODO'?'selected':''}>Mới tạo</option>
-                                <option value="IN_PROGRESS" ${task.status==='IN_PROGRESS'?'selected':''}>Đang thực hiện</option>
-                                <option value="COMPLETED" ${task.status==='COMPLETED'?'selected':''}>Hoàn thành</option>
-                            </select>
-                        </div>` : ''}
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Nhân sự phối hợp</label>
+                            <div class="border rounded p-2 max-h-24 overflow-y-auto grid grid-cols-2 gap-x-4 custom-scroll bg-gray-50">
+                                ${collabChecks}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Ghi chú thêm</label>
+                            <textarea id="swal-note" class="swal2-textarea m-0 w-full text-sm h-16" placeholder="Ghi chú cho người thực hiện...">${task?.notes || ''}</textarea>
+                        </div>
                     </div>
                 `,
                 showCancelButton: true,
-                confirmButtonText: 'Lưu lại',
+                confirmButtonText: 'Lưu công việc',
+                cancelButtonText: 'Hủy',
+                focusConfirm: false,
                 preConfirm: () => {
+                    const collabs = Array.from(document.querySelectorAll('.collab-checkbox:checked')).map(el => el.value);
                     return {
                         title: $('#swal-title').value,
+                        desc: $('#swal-desc').value,
                         type: $('#swal-type').value,
                         pjName: $('#swal-pj').value,
                         start: $('#swal-start').value,
                         end: $('#swal-end').value,
                         assign: $('#swal-assign').value,
+                        collaborators: collabs,
+                        notes: $('#swal-note').value,
                         status: editId ? $('#swal-status').value : 'TODO'
                     }
                 }
             }).then(async (result) => {
                 if (result.isConfirmed) {
                     const d = result.value;
-                    if (!d.title || !d.end) return Swal.fire('Lỗi', 'Thiếu thông tin bắt buộc', 'error');
+                    if (!d.title || !d.end || !d.assign) return Swal.fire('Thiếu thông tin', 'Vui lòng nhập Tên việc, Hạn chót và Người chủ trì', 'error');
                     
                     let pjId = '';
                     if (d.type === 'project' && d.pjName) {
@@ -712,16 +780,34 @@
 
                     if (editId) {
                         Object.assign(task, {
-                            title: d.title, projectId: pjId, startDate: d.start, deadline: d.end, assignedTo: d.assign, status: d.status
+                            title: d.title, 
+                            description: d.desc,
+                            projectId: pjId, 
+                            startDate: d.start, 
+                            deadline: d.end, 
+                            assignedTo: d.assign,
+                            collaborators: d.collaborators,
+                            notes: d.notes,
+                            status: d.status
                         });
                     } else {
                         STATE.tasks.push({
-                            id: uuid(), title: d.title, projectId: pjId, startDate: d.start, deadline: d.end, assignedTo: d.assign, status: 'TODO', createdAt: new Date().toISOString()
+                            id: uuid(), 
+                            title: d.title, 
+                            description: d.desc,
+                            projectId: pjId, 
+                            startDate: d.start, 
+                            deadline: d.end, 
+                            assignedTo: d.assign,
+                            collaborators: d.collaborators,
+                            notes: d.notes,
+                            status: 'TODO', 
+                            createdAt: new Date().toISOString()
                         });
                     }
                     await DB.save();
                     renderTasks($('#content'));
-                    Swal.fire('Thành công', 'Đã lưu công việc', 'success');
+                    Swal.fire('Thành công', 'Đã lưu công việc vào hệ thống', 'success');
                 }
             });
         };
@@ -730,13 +816,15 @@
             Swal.fire({
                 title: 'Thêm nhân sự mới',
                 html: `
-                    <input id="u-name" class="swal2-input" placeholder="Họ và tên">
-                    <input id="u-user" class="swal2-input" placeholder="Tên đăng nhập">
-                    <input id="u-pass" class="swal2-input" placeholder="Mật khẩu khởi tạo" type="password">
-                    <select id="u-role" class="swal2-input">
-                        <option value="STAFF">Nhân viên</option>
-                        <option value="ADMIN">Quản trị viên</option>
-                    </select>
+                    <div class="space-y-3">
+                        <input id="u-name" class="swal2-input w-full m-0" placeholder="Họ và tên">
+                        <input id="u-user" class="swal2-input w-full m-0" placeholder="Tên đăng nhập">
+                        <input id="u-pass" class="swal2-input w-full m-0" placeholder="Mật khẩu khởi tạo" type="password">
+                        <select id="u-role" class="swal2-input w-full m-0">
+                            <option value="STAFF">Nhân viên</option>
+                            <option value="ADMIN">Quản trị viên</option>
+                        </select>
+                    </div>
                 `,
                 showCancelButton: true,
                 confirmButtonText: 'Tạo nhân sự',
@@ -775,20 +863,55 @@
             const t = STATE.tasks.find(x => x.id === id);
             const u = STATE.users.find(x => x.id === t.assignedTo);
             const isMyTask = STATE.currentUser.id === t.assignedTo;
+            const collabNames = (t.collaborators || []).map(cid => STATE.users.find(us => us.id === cid)?.name).join(', ') || 'Không có';
             
             Swal.fire({
-                title: t.title,
+                title: `<span class="text-xl text-blue-800">${t.title}</span>`,
+                width: '600px',
                 html: `
-                    <div class="text-left text-sm space-y-2">
-                        <p><strong>Dự án:</strong> ${t.projectId ? STATE.projects.find(p=>p.id===t.projectId).name : 'Việc lẻ'}</p>
-                        <p><strong>Người làm:</strong> ${u ? u.name : 'N/A'}</p>
-                        <p><strong>Hạn chót:</strong> ${t.deadline}</p>
-                        <p><strong>Trạng thái:</strong> ${CONSTANTS.STATUS[t.status].label}</p>
+                    <div class="text-left space-y-4 text-sm">
+                        <div class="bg-gray-50 p-3 rounded border border-gray-100">
+                            <div class="grid grid-cols-2 gap-2 mb-2">
+                                <p><strong class="text-gray-600">Loại hình:</strong> ${t.projectId ? 'Dự án' : 'Việc lẻ'}</p>
+                                <p><strong class="text-gray-600">Dự án:</strong> ${t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : '-'}</p>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <p><strong class="text-gray-600">Ngày giao:</strong> ${t.startDate}</p>
+                                <p><strong class="text-gray-600">Hạn chót:</strong> <span class="${getTaskStatus(t)==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline}</span></p>
+                            </div>
+                        </div>
+
+                        <div>
+                            <strong class="text-gray-700 block mb-1 border-b pb-1">Nội dung thực hiện:</strong>
+                            <p class="whitespace-pre-line text-slate-800 bg-white p-2 border rounded min-h-[60px]">${t.description || 'Chưa có mô tả chi tiết'}</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <strong class="text-gray-700 block mb-1">Chủ trì:</strong>
+                                <span class="text-blue-700 font-bold bg-blue-50 px-2 py-1 rounded">${u ? u.name : 'N/A'}</span>
+                            </div>
+                             <div>
+                                <strong class="text-gray-700 block mb-1">Trạng thái:</strong>
+                                <span class="px-2 py-1 rounded font-bold text-xs ${CONSTANTS.STATUS[t.status].color}">${CONSTANTS.STATUS[t.status].label}</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <strong class="text-gray-700 block mb-1">Nhân sự phối hợp:</strong>
+                            <p class="text-slate-600 italic">${collabNames}</p>
+                        </div>
+
+                        <div>
+                            <strong class="text-gray-700 block mb-1">Ghi chú:</strong>
+                            <p class="text-slate-500 italic text-xs">${t.notes || 'Không có ghi chú'}</p>
+                        </div>
                     </div>
                 `,
-                showDenyButton: isMyTask && t.status !== 'COMPLETED',
+                showDenyButton: (isMyTask || (t.collaborators && t.collaborators.includes(STATE.currentUser.id))) && t.status !== 'COMPLETED',
                 denyButtonText: 'Báo cáo Hoàn thành',
-                denyButtonColor: '#16a34a'
+                denyButtonColor: '#16a34a',
+                confirmButtonText: 'Đóng'
             }).then(async (res) => {
                 if (res.isDenied) {
                     t.status = 'COMPLETED';
@@ -812,6 +935,14 @@
         };
 
         window.deleteUser = (id) => {
+            // Prevent deleting the last Admin
+            const adminCount = STATE.users.filter(u => u.role === 'ADMIN').length;
+            const targetUser = STATE.users.find(u => u.id === id);
+            
+            if (targetUser.role === 'ADMIN' && adminCount <= 1) {
+                return Swal.fire('Không thể xóa', 'Hệ thống cần ít nhất 1 tài khoản Quản trị viên (Admin)', 'error');
+            }
+
             Swal.fire({title: 'Xóa nhân sự này?', text: 'Hành động không thể phục hồi', icon: 'warning', showCancelButton: true}).then(async (r) => {
                 if(r.isConfirmed) {
                     STATE.users = STATE.users.filter(u => u.id !== id);
