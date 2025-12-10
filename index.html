@@ -199,7 +199,7 @@
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
                         <div class="mt-6 text-xs text-center text-gray-400">
-                            Version 2.1 - Enhanced Task Module
+                            Version 2.2 - Enhanced Reporting
                         </div>
                     </div>
                 </div>
@@ -474,6 +474,7 @@
                                     <td>
                                         <div class="font-bold text-slate-700 hover:text-blue-600 cursor-pointer" onclick="viewTask('${t.id}')">${t.title}</div>
                                         <div class="text-xs text-gray-500 truncate max-w-[200px]">${pj}</div>
+                                        ${t.extensionStatus === 'PENDING' ? '<span class="text-[10px] bg-yellow-100 text-yellow-700 px-1 rounded ml-1">Xin gia hạn</span>' : ''}
                                     </td>
                                     <td class="font-medium text-blue-900">${assignee}</td>
                                     <td class="text-xs text-gray-500">${collabCount > 0 ? `+${collabCount} nhân sự` : '-'}</td>
@@ -554,7 +555,9 @@
                     "Ngày giao": t.startDate,
                     "Hạn chót": t.deadline,
                     "Trạng thái": CONSTANTS.STATUS[getTaskStatus(t)].label,
-                    "Ghi chú": t.notes || ''
+                    "Kết quả TH": t.reportResult || '',
+                    "Vướng mắc": t.reportIssues || '',
+                    "Ghi chú của NV": t.reportNotes || ''
                 };
             });
 
@@ -739,7 +742,7 @@
                         </div>
 
                         <div>
-                            <label class="block text-xs font-bold mb-1 text-gray-600">Ghi chú thêm</label>
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Ghi chú (Của Admin)</label>
                             <textarea id="swal-note" class="swal2-textarea m-0 w-full text-sm h-16" placeholder="Ghi chú cho người thực hiện...">${task?.notes || ''}</textarea>
                         </div>
                     </div>
@@ -862,15 +865,84 @@
         window.viewTask = (id) => {
             const t = STATE.tasks.find(x => x.id === id);
             const u = STATE.users.find(x => x.id === t.assignedTo);
-            const isMyTask = STATE.currentUser.id === t.assignedTo;
+            // Check if current user is owner or collaborator
+            const isMyTask = STATE.currentUser.id === t.assignedTo || (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
+            const isAdmin = STATE.currentUser.role === 'ADMIN';
             const collabNames = (t.collaborators || []).map(cid => STATE.users.find(us => us.id === cid)?.name).join(', ') || 'Không có';
             
+            // Build Report Section based on Role
+            let reportSection = '';
+            
+            if (isMyTask && !isAdmin) {
+                // User View: Input Fields
+                reportSection = `
+                    <div class="bg-blue-50 p-4 rounded border border-blue-200 mt-4">
+                        <h4 class="font-bold text-blue-800 mb-3 border-b border-blue-200 pb-1 flex items-center gap-2"><i data-lucide="edit"></i> Báo cáo thực hiện</h4>
+                        
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Kết quả thực hiện:</label>
+                                <textarea id="rpt-result" class="w-full text-sm p-2 border rounded h-16" placeholder="Nhập kết quả...">${t.reportResult || ''}</textarea>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Vướng mắc / Đề xuất:</label>
+                                <textarea id="rpt-issues" class="w-full text-sm p-2 border rounded h-16" placeholder="Nhập vướng mắc...">${t.reportIssues || ''}</textarea>
+                            </div>
+                             <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Đề nghị gia hạn đến:</label>
+                                    <input type="date" id="rpt-ext" class="w-full text-sm p-2 border rounded" value="${t.extensionDate || ''}">
+                                    ${t.extensionStatus === 'PENDING' ? '<span class="text-[10px] text-orange-600 italic">Đang chờ duyệt</span>' : ''}
+                                    ${t.extensionStatus === 'APPROVED' ? '<span class="text-[10px] text-green-600 italic">Đã được duyệt</span>' : ''}
+                                    ${t.extensionStatus === 'REJECTED' ? '<span class="text-[10px] text-red-600 italic">Đã bị từ chối</span>' : ''}
+                                </div>
+                                <div>
+                                     <label class="block text-xs font-bold text-gray-700 mb-1">Ghi chú cá nhân:</label>
+                                    <input type="text" id="rpt-note" class="w-full text-sm p-2 border rounded" value="${t.reportNotes || ''}">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Admin or Viewer View: Read Only
+                reportSection = `
+                    <div class="bg-gray-100 p-4 rounded border border-gray-200 mt-4">
+                        <h4 class="font-bold text-gray-800 mb-3 border-b border-gray-300 pb-1 flex items-center gap-2"><i data-lucide="clipboard-list"></i> Báo cáo từ Nhân viên</h4>
+                        <div class="space-y-2 text-sm">
+                            <p><strong class="text-gray-600">Kết quả:</strong> ${t.reportResult || '<span class="italic text-gray-400">Chưa có</span>'}</p>
+                            <p><strong class="text-gray-600">Vướng mắc:</strong> ${t.reportIssues || '<span class="italic text-gray-400">Chưa có</span>'}</p>
+                            <p><strong class="text-gray-600">Ghi chú NV:</strong> ${t.reportNotes || '<span class="italic text-gray-400">Chưa có</span>'}</p>
+                            
+                            ${t.extensionDate ? `
+                                <div class="bg-white p-2 rounded border border-gray-200 mt-2">
+                                    <strong class="text-gray-600">Yêu cầu gia hạn đến:</strong> <span class="font-bold text-blue-600">${t.extensionDate}</span>
+                                    <div class="mt-1">
+                                        Trạng thái: 
+                                        ${t.extensionStatus === 'PENDING' ? '<span class="font-bold text-orange-500">Chờ duyệt</span>' : 
+                                          t.extensionStatus === 'APPROVED' ? '<span class="font-bold text-green-600">Đã duyệt</span>' : 
+                                          '<span class="font-bold text-red-600">Từ chối</span>'}
+                                        
+                                        ${isAdmin && t.extensionStatus === 'PENDING' ? `
+                                            <div class="mt-2 flex gap-2">
+                                                <button onclick="approveExt('${t.id}', true)" class="bg-green-600 text-white text-xs px-2 py-1 rounded">Duyệt</button>
+                                                <button onclick="approveExt('${t.id}', false)" class="bg-red-600 text-white text-xs px-2 py-1 rounded">Từ chối</button>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
             Swal.fire({
                 title: `<span class="text-xl text-blue-800">${t.title}</span>`,
-                width: '600px',
+                width: '700px',
                 html: `
                     <div class="text-left space-y-4 text-sm">
-                        <div class="bg-gray-50 p-3 rounded border border-gray-100">
+                        <div class="bg-white p-3 rounded border border-gray-100 shadow-sm">
                             <div class="grid grid-cols-2 gap-2 mb-2">
                                 <p><strong class="text-gray-600">Loại hình:</strong> ${t.projectId ? 'Dự án' : 'Việc lẻ'}</p>
                                 <p><strong class="text-gray-600">Dự án:</strong> ${t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : '-'}</p>
@@ -882,8 +954,8 @@
                         </div>
 
                         <div>
-                            <strong class="text-gray-700 block mb-1 border-b pb-1">Nội dung thực hiện:</strong>
-                            <p class="whitespace-pre-line text-slate-800 bg-white p-2 border rounded min-h-[60px]">${t.description || 'Chưa có mô tả chi tiết'}</p>
+                            <strong class="text-gray-700 block mb-1">Nội dung thực hiện:</strong>
+                            <p class="whitespace-pre-line text-slate-800 bg-gray-50 p-2 border rounded min-h-[60px]">${t.description || 'Chưa có mô tả chi tiết'}</p>
                         </div>
 
                         <div class="grid grid-cols-2 gap-4">
@@ -896,30 +968,66 @@
                                 <span class="px-2 py-1 rounded font-bold text-xs ${CONSTANTS.STATUS[t.status].color}">${CONSTANTS.STATUS[t.status].label}</span>
                             </div>
                         </div>
-
-                        <div>
+                        
+                         <div>
                             <strong class="text-gray-700 block mb-1">Nhân sự phối hợp:</strong>
                             <p class="text-slate-600 italic">${collabNames}</p>
                         </div>
-
-                        <div>
-                            <strong class="text-gray-700 block mb-1">Ghi chú:</strong>
+                        
+                         <div>
+                            <strong class="text-gray-700 block mb-1">Ghi chú (Admin):</strong>
                             <p class="text-slate-500 italic text-xs">${t.notes || 'Không có ghi chú'}</p>
                         </div>
+
+                        <!-- REPORTING SECTION -->
+                        ${reportSection}
                     </div>
                 `,
-                showDenyButton: (isMyTask || (t.collaborators && t.collaborators.includes(STATE.currentUser.id))) && t.status !== 'COMPLETED',
-                denyButtonText: 'Báo cáo Hoàn thành',
-                denyButtonColor: '#16a34a',
-                confirmButtonText: 'Đóng'
+                showCancelButton: true,
+                confirmButtonText: (isMyTask && !isAdmin) ? 'Lưu báo cáo' : 'Đóng',
+                cancelButtonText: (isMyTask && !isAdmin) ? 'Hủy' : null,
+                showConfirmButton: true,
+                preConfirm: () => {
+                    if (isMyTask && !isAdmin) {
+                        return {
+                            res: $('#rpt-result').value,
+                            iss: $('#rpt-issues').value,
+                            note: $('#rpt-note').value,
+                            ext: $('#rpt-ext').value
+                        }
+                    }
+                }
             }).then(async (res) => {
-                if (res.isDenied) {
-                    t.status = 'COMPLETED';
+                if (res.isConfirmed && isMyTask && !isAdmin) {
+                    const d = res.value;
+                    t.reportResult = d.res;
+                    t.reportIssues = d.iss;
+                    t.reportNotes = d.note;
+                    if (d.ext && d.ext !== t.extensionDate) {
+                        t.extensionDate = d.ext;
+                        t.extensionStatus = 'PENDING';
+                    }
                     await DB.save();
+                    Swal.fire('Thành công', 'Đã lưu báo cáo thực hiện', 'success');
                     renderTasks($('#content'));
-                    Swal.fire('Tuyệt vời', 'Đã cập nhật trạng thái hoàn thành!', 'success');
                 }
             });
+        };
+
+        window.approveExt = async (taskId, isApproved) => {
+            const t = STATE.tasks.find(x => x.id === taskId);
+            if (!t) return;
+            
+            if (isApproved) {
+                t.deadline = t.extensionDate;
+                t.extensionStatus = 'APPROVED';
+                Swal.fire('Đã duyệt', `Hạn chót mới là ${t.deadline}`, 'success');
+            } else {
+                t.extensionStatus = 'REJECTED';
+                Swal.fire('Đã từ chối', 'Không thay đổi hạn chót', 'info');
+            }
+            await DB.save();
+            renderTasks($('#content'));
         };
 
         window.editTask = (id) => openTaskModal(id);
