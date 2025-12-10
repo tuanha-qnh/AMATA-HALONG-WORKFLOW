@@ -1,49 +1,821 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WorkFlow Pro - Task Management</title>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Quản lý Giao việc - WorkFlow Pro</title>
+    
+    <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Google GenAI Import Map -->
+    <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://esm.run/@google/genai"
+      }
+    }
+    </script>
+
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-      body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
-      
-      /* Animations */
-      @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-      @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-      @keyframes slideInRight {
-        from { transform: translateX(100%); }
-        to { transform: translateX(0); }
-      }
-      .animate-fade-in { animation: fadeIn 0.3s ease-out; }
-      .animate-fade-in-up { animation: fadeInUp 0.4s ease-out; }
-      .animate-slide-in-right { animation: slideInRight 0.3s ease-out; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.1/client",
-    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.1",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
-    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
-    "date-fns": "https://aistudiocdn.com/date-fns@^4.1.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/"
-  }
-}
-</script>
 </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="index.tsx"></script>
-  </body>
+<body class="text-gray-800 h-screen overflow-hidden flex flex-col">
+
+    <!-- App Container -->
+    <div id="app" class="flex-1 flex h-full overflow-hidden">
+        <!-- Content will be injected here by JS -->
+    </div>
+
+    <!-- MAIN SCRIPT -->
+    <script type="module">
+        import { GoogleGenAI } from "@google/genai";
+
+        // ==========================================
+        // 1. DATA & STATE MANAGEMENT
+        // ==========================================
+        
+        const KEYS = {
+            USERS: 'wf_users',
+            TASKS: 'wf_tasks',
+            PROJECTS: 'wf_projects',
+            REPORTS: 'wf_reports',
+            USER: 'wf_current_user',
+            LANG: 'wf_lang',
+            SETTINGS: 'wf_settings'
+        };
+
+        const MOCK_DATA = {
+            users: [
+                { id: 'u1', username: 'admin', password: '123', name: 'Quản trị viên', email: 'admin@amata.com', role: 'ADMIN', isFirst: false },
+                { id: 'u2', username: 'staff1', password: '123', name: 'Nguyễn Văn A', email: 'a@amata.com', role: 'STAFF', isFirst: true },
+                { id: 'u3', username: 'staff2', password: '123', name: 'Trần Thị B', email: 'b@amata.com', role: 'STAFF', isFirst: false }
+            ],
+            projects: [
+                { id: 'p1', name: 'Chiến dịch Mùa Hè', desc: 'Marketing tổng lực' },
+                { id: 'p2', name: 'Nâng cấp Website', desc: 'IT Dept' }
+            ],
+            tasks: [
+                { id: 't1', title: 'Thiết kế Banner', desc: 'Banner Facebook kích thước 1200x630', projectId: 'p1', status: 'IN_PROGRESS', priority: 'HIGH', assignedTo: 'u2', deadline: '2023-12-20', progress: 50 },
+                { id: 't2', title: 'Sửa máy in tầng 2', desc: 'Liên hệ nhà cung cấp', projectId: '', status: 'TODO', priority: 'LOW', assignedTo: 'u3', deadline: '2024-05-01', progress: 0 }
+            ]
+        };
+
+        // State
+        let state = {
+            currentUser: JSON.parse(localStorage.getItem(KEYS.USER)) || null,
+            users: JSON.parse(localStorage.getItem(KEYS.USERS)) || MOCK_DATA.users,
+            tasks: JSON.parse(localStorage.getItem(KEYS.TASKS)) || MOCK_DATA.tasks,
+            projects: JSON.parse(localStorage.getItem(KEYS.PROJECTS)) || MOCK_DATA.projects,
+            activePage: 'dashboard',
+            lang: localStorage.getItem(KEYS.LANG) || 'vi',
+            settings: JSON.parse(localStorage.getItem(KEYS.SETTINGS)) || {
+                smtpHost: 'smtp.gmail.com',
+                smtpPort: '587',
+                emailUser: '',
+                emailPass: ''
+            }
+        };
+
+        // Initialize Storage if empty
+        if (!localStorage.getItem(KEYS.USERS)) {
+            localStorage.setItem(KEYS.USERS, JSON.stringify(MOCK_DATA.users));
+            localStorage.setItem(KEYS.TASKS, JSON.stringify(MOCK_DATA.tasks));
+            localStorage.setItem(KEYS.PROJECTS, JSON.stringify(MOCK_DATA.projects));
+        }
+
+        const saveData = () => {
+            localStorage.setItem(KEYS.USERS, JSON.stringify(state.users));
+            localStorage.setItem(KEYS.TASKS, JSON.stringify(state.tasks));
+            localStorage.setItem(KEYS.PROJECTS, JSON.stringify(state.projects));
+            localStorage.setItem(KEYS.SETTINGS, JSON.stringify(state.settings));
+            localStorage.setItem(KEYS.LANG, state.lang);
+        };
+
+        // Dictionary
+        const T = {
+            vi: {
+                dashboard: "Tổng quan", tasks: "Công việc", reports: "Báo cáo", users: "Nhân sự", settings: "Cấu hình", logout: "Đăng xuất",
+                total: "Tổng việc", completed: "Hoàn thành", overdue: "Quá hạn", processing: "Đang xử lý",
+                assignTask: "Giao việc mới", exportExcel: "Xuất Excel",
+                status_TODO: "Mới tạo", status_IN_PROGRESS: "Đang làm", status_COMPLETED: "Hoàn thành",
+                p_LOW: "Thấp", p_MEDIUM: "Vừa", p_HIGH: "Cao", p_URGENT: "Khẩn cấp"
+            },
+            en: {
+                dashboard: "Dashboard", tasks: "Tasks", reports: "Reports", users: "Users", settings: "Settings", logout: "Logout",
+                total: "Total", completed: "Completed", overdue: "Overdue", processing: "Processing",
+                assignTask: "New Task", exportExcel: "Export Excel",
+                status_TODO: "To Do", status_IN_PROGRESS: "In Progress", status_COMPLETED: "Completed",
+                p_LOW: "Low", p_MEDIUM: "Medium", p_HIGH: "High", p_URGENT: "Urgent"
+            }
+        };
+
+        const t = (key) => T[state.lang][key] || key;
+
+        // ==========================================
+        // 2. HELPER FUNCTIONS
+        // ==========================================
+
+        const $ = (sel) => document.querySelector(sel);
+        
+        const renderIcons = () => lucide.createIcons();
+
+        const formatDate = (dateStr) => {
+            if(!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString('vi-VN');
+        };
+
+        // Export Excel (CSV)
+        window.exportExcel = () => {
+            const headers = ['ID', 'Dự án', 'Tiêu đề', 'Mô tả', 'Người thực hiện', 'Hạn chót', 'Trạng thái', 'Tiến độ(%)'];
+            const rows = state.tasks.map(task => {
+                const pj = state.projects.find(p => p.id === task.projectId)?.name || 'Việc lẻ';
+                const u = state.users.find(u => u.id === task.assignedTo)?.name || 'N/A';
+                return [
+                    task.id, `"${pj}"`, `"${task.title}"`, `"${task.desc}"`, `"${u}"`, 
+                    task.deadline, t('status_' + task.status), task.progress
+                ].join(',');
+            });
+            
+            const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Bao_Cao_Cong_Viec_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+        };
+
+        // AI Suggestion
+        window.askAI = async () => {
+            const title = $('#taskTitle').value;
+            if(!title) return alert("Vui lòng nhập tên công việc trước!");
+            
+            const btn = $('#aiBtn');
+            btn.innerHTML = 'Thinking...';
+            btn.disabled = true;
+
+            try {
+                const apiKey = localStorage.getItem('GEMINI_API_KEY');
+                
+                if(!apiKey) {
+                    const inputKey = prompt("Vui lòng nhập Google Gemini API Key để dùng tính năng này:");
+                    if(inputKey) localStorage.setItem('GEMINI_API_KEY', inputKey);
+                    else throw new Error("Thiếu API Key");
+                }
+
+                const ai = new GoogleGenAI({ apiKey: localStorage.getItem('GEMINI_API_KEY') });
+                const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
+                const result = await model.generateContent(`Viết mô tả công việc ngắn gọn và gạch đầu dòng 3 bước cần làm cho đầu việc: "${title}"`);
+                
+                $('#taskDesc').value = result.response.text();
+            } catch (err) {
+                alert("Lỗi AI: " + err.message);
+            } finally {
+                btn.innerHTML = '<i data-lucide="wand-2"></i> AI Gợi ý';
+                renderIcons();
+                btn.disabled = false;
+            }
+        };
+
+        // ==========================================
+        // 3. RENDER VIEWS
+        // ==========================================
+
+        const renderLogin = () => {
+            $('#app').innerHTML = `
+                <div class="w-full h-full flex items-center justify-center bg-slate-900 p-4">
+                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md fade-in">
+                        <h1 class="text-3xl font-bold text-center mb-6 text-blue-600">WorkFlow Pro</h1>
+                        <form id="loginForm" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Tên đăng nhập</label>
+                                <input type="text" id="loginUser" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="admin">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Mật khẩu</label>
+                                <input type="password" id="loginPass" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="123">
+                            </div>
+                            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 font-bold">Đăng nhập</button>
+                        </form>
+                        <p class="text-xs text-center mt-4 text-gray-400">Default: admin / 123</p>
+                    </div>
+                </div>
+            `;
+            
+            $('#loginForm').onsubmit = (e) => {
+                e.preventDefault();
+                const u = $('#loginUser').value;
+                const p = $('#loginPass').value;
+                const user = state.users.find(user => user.username === u && user.password === p);
+                
+                if (user) {
+                    if (user.isFirst) {
+                        renderForceChangePass(user);
+                    } else {
+                        state.currentUser = user;
+                        localStorage.setItem(KEYS.USER, JSON.stringify(user));
+                        renderApp();
+                    }
+                } else {
+                    alert('Sai thông tin đăng nhập!');
+                }
+            };
+        };
+
+        const renderForceChangePass = (user) => {
+             $('#app').innerHTML = `
+                <div class="w-full h-full flex items-center justify-center bg-gray-100">
+                    <div class="bg-white p-8 rounded-xl shadow-lg w-96 border-t-4 border-yellow-500 slide-in">
+                        <h2 class="text-xl font-bold mb-4">Đổi mật khẩu lần đầu</h2>
+                        <form id="changePassForm" class="space-y-4">
+                            <input type="password" id="newPass" class="w-full border p-2 rounded" placeholder="Mật khẩu mới" required>
+                            <button type="submit" class="w-full bg-yellow-500 text-white py-2 rounded font-bold">Cập nhật</button>
+                        </form>
+                    </div>
+                </div>
+            `;
+            $('#changePassForm').onsubmit = (e) => {
+                e.preventDefault();
+                user.password = $('#newPass').value;
+                user.isFirst = false;
+                // Update in list
+                const idx = state.users.findIndex(u => u.id === user.id);
+                state.users[idx] = user;
+                saveData();
+                alert("Đổi mật khẩu thành công! Vui lòng đăng nhập lại.");
+                renderLogin();
+            };
+        }
+
+        const renderApp = () => {
+            const isAdmin = state.currentUser.role === 'ADMIN';
+            
+            const menu = [
+                { id: 'dashboard', icon: 'layout-dashboard', label: t('dashboard') },
+                { id: 'tasks', icon: 'check-square', label: t('tasks') },
+                { id: 'reports', icon: 'bar-chart-2', label: t('reports'), adminOnly: true },
+                { id: 'users', icon: 'users', label: t('users'), adminOnly: true },
+                { id: 'settings', icon: 'settings', label: t('settings') }
+            ];
+
+            const sidebarHtml = menu.map(item => {
+                if (item.adminOnly && !isAdmin) return '';
+                const active = state.activePage === item.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700';
+                return `<button onclick="window.nav('${item.id}')" class="w-full flex items-center gap-3 px-4 py-3 rounded mb-1 transition-colors ${active}">
+                    <i data-lucide="${item.icon}" width="20"></i> ${item.label}
+                </button>`;
+            }).join('');
+
+            $('#app').innerHTML = `
+                <aside class="w-64 bg-slate-800 text-white flex flex-col shadow-xl flex-shrink-0">
+                    <div class="p-6 border-b border-slate-700">
+                        <h1 class="text-2xl font-bold text-blue-400">WorkFlow</h1>
+                    </div>
+                    <nav class="flex-1 p-4">${sidebarHtml}</nav>
+                    <div class="p-4 border-t border-slate-700 bg-slate-900/50">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center font-bold">
+                                ${state.currentUser.name.charAt(0)}
+                            </div>
+                            <div class="overflow-hidden">
+                                <div class="truncate text-sm font-medium">${state.currentUser.name}</div>
+                                <div class="text-xs text-slate-400">${state.currentUser.role}</div>
+                            </div>
+                        </div>
+                        <button onclick="window.logout()" class="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-red-600 py-2 rounded text-sm transition-colors">
+                            <i data-lucide="log-out" width="16"></i> ${t('logout')}
+                        </button>
+                    </div>
+                </aside>
+                <main class="flex-1 bg-gray-100 overflow-y-auto p-8 relative" id="main-content">
+                    <!-- Dynamic Content -->
+                </main>
+            `;
+            
+            renderPageContent();
+            renderIcons();
+        };
+
+        const renderPageContent = () => {
+            const container = $('#main-content');
+            container.innerHTML = '';
+            
+            switch(state.activePage) {
+                case 'dashboard': renderDashboard(container); break;
+                case 'tasks': renderTasks(container); break;
+                case 'reports': renderReports(container); break;
+                case 'users': renderUsers(container); break;
+                case 'settings': renderSettings(container); break;
+                default: renderDashboard(container);
+            }
+            renderIcons();
+        };
+
+        // --- DASHBOARD ---
+        const renderDashboard = (container) => {
+            // Logic: Show stat cards for each employee
+            const usersToShow = state.currentUser.role === 'ADMIN' ? state.users.filter(u => u.role === 'STAFF') : [state.currentUser];
+            
+            let html = `
+                <h2 class="text-2xl font-bold mb-6 text-gray-800">${t('dashboard')} - Tổng quan tiến độ nhân sự</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            `;
+
+            if (usersToShow.length === 0) html += `<p class="text-gray-500">Không có nhân sự nào.</p>`;
+
+            usersToShow.forEach(u => {
+                const uTasks = state.tasks.filter(t => t.assignedTo === u.id);
+                const total = uTasks.length;
+                const completed = uTasks.filter(t => t.status === 'COMPLETED').length;
+                const overdue = uTasks.filter(t => t.status !== 'COMPLETED' && new Date(t.deadline) < new Date()).length;
+                const rate = total ? Math.round((completed/total)*100) : 0;
+                
+                html += `
+                    <div class="bg-white rounded-xl shadow border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
+                        <div class="p-4 bg-gray-50 border-b flex justify-between items-center">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg">
+                                    ${u.name.charAt(0)}
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-gray-800">${u.name}</h3>
+                                    <p class="text-xs text-gray-500">${u.email}</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-2xl font-bold ${rate >= 80 ? 'text-green-600' : rate >= 50 ? 'text-yellow-600' : 'text-red-600'}">${rate}%</div>
+                                <div class="text-xs text-gray-400">Hoàn thành</div>
+                            </div>
+                        </div>
+                        <div class="p-4 grid grid-cols-3 gap-2 text-center">
+                            <div class="bg-gray-50 p-2 rounded">
+                                <div class="text-lg font-bold text-gray-700">${total}</div>
+                                <div class="text-xs text-gray-500">Tổng</div>
+                            </div>
+                            <div class="bg-green-50 p-2 rounded">
+                                <div class="text-lg font-bold text-green-700">${completed}</div>
+                                <div class="text-xs text-green-600">Xong</div>
+                            </div>
+                            <div class="bg-red-50 p-2 rounded">
+                                <div class="text-lg font-bold text-red-700">${overdue}</div>
+                                <div class="text-xs text-red-600">Quá hạn</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `</div>`;
+            container.innerHTML = html;
+        };
+
+        // --- TASKS ---
+        const renderTasks = (container) => {
+            const isAdmin = state.currentUser.role === 'ADMIN';
+            // Filter tasks
+            const myTasks = state.tasks.filter(t => isAdmin || t.assignedTo === state.currentUser.id);
+
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">${t('tasks')}</h2>
+                    ${isAdmin ? `<button onclick="window.openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2"><i data-lucide="plus"></i> ${t('assignTask')}</button>` : ''}
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    ${myTasks.map(task => {
+                        const isOverdue = new Date(task.deadline) < new Date() && task.status !== 'COMPLETED';
+                        const project = state.projects.find(p => p.id === task.projectId);
+                        const assignee = state.users.find(u => u.id === task.assignedTo);
+                        
+                        return `
+                        <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 ${task.status === 'COMPLETED' ? 'border-green-500' : isOverdue ? 'border-red-500' : 'border-blue-500'} cursor-pointer hover:-translate-y-1 transition-transform relative group">
+                             ${isAdmin ? `<button onclick="window.deleteTask('${task.id}')" class="absolute top-2 right-2 p-2 text-red-400 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><i data-lucide="trash-2" width="16"></i></button>` : ''}
+                             
+                             <div class="flex justify-between items-start mb-2">
+                                <span class="text-xs px-2 py-1 rounded bg-gray-100 font-bold text-gray-600">${task.priority}</span>
+                                ${project ? `<span class="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase">${project.name}</span>` : '<span class="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded">Việc lẻ</span>'}
+                             </div>
+                             
+                             <h3 class="text-lg font-bold text-gray-800 mb-1 line-clamp-2">${task.title}</h3>
+                             <p class="text-sm text-gray-500 mb-4 line-clamp-2">${task.desc}</p>
+                             
+                             <div class="flex items-center justify-between text-sm text-gray-600 mt-4 pt-3 border-t">
+                                <div class="flex items-center gap-1 ${isOverdue ? 'text-red-600 font-bold' : ''}">
+                                    <i data-lucide="calendar" width="14"></i> ${formatDate(task.deadline)}
+                                </div>
+                                <div class="flex items-center gap-1" title="${assignee?.name}">
+                                    <div class="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold">${assignee?.name.charAt(0)}</div>
+                                </div>
+                             </div>
+                             
+                             <!-- Quick Status Update for Staff -->
+                             <div class="mt-3">
+                                <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                    <div class="bg-blue-600 h-1.5 rounded-full" style="width: ${task.progress}%"></div>
+                                </div>
+                             </div>
+                        </div>
+                        `;
+                    }).join('')}
+                    ${myTasks.length === 0 ? '<p class="text-gray-500 col-span-full text-center py-10">Không có công việc nào.</p>' : ''}
+                </div>
+            `;
+        };
+
+        // --- USERS ---
+        const renderUsers = (container) => {
+            // Additional check: If not admin, do not render (double safety)
+            if (state.currentUser.role !== 'ADMIN') {
+                container.innerHTML = '<div class="p-8 text-center text-red-500">Bạn không có quyền truy cập mục này.</div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">${t('users')}</h2>
+                    <button onclick="window.openUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2"><i data-lucide="plus"></i> Thêm nhân sự</button>
+                </div>
+                <div class="bg-white rounded-xl shadow overflow-hidden">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-gray-50 text-gray-500 text-sm uppercase">
+                            <tr>
+                                <th class="px-6 py-3">Họ tên</th>
+                                <th class="px-6 py-3">Username</th>
+                                <th class="px-6 py-3">Email</th>
+                                <th class="px-6 py-3">Vai trò</th>
+                                <th class="px-6 py-3 text-right">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            ${state.users.map(u => {
+                                // PERMISSION LOGIC:
+                                // 1. Current user must be ADMIN
+                                // 2. Target user must NOT be ADMIN (Prevent deleting other admins)
+                                // 3. Target user cannot be self (already covered by condition 2 if self is admin, but explicit is better)
+                                const canDelete = state.currentUser.role === 'ADMIN' && u.role !== 'ADMIN';
+
+                                return `
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 font-medium">${u.name}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-600">${u.username}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-600">${u.email}</td>
+                                    <td class="px-6 py-4"><span class="px-2 py-1 rounded text-xs font-bold ${u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}">${u.role}</span></td>
+                                    <td class="px-6 py-4 text-right">
+                                        ${canDelete ? `<button onclick="window.deleteUser('${u.id}')" class="text-red-500 hover:bg-red-100 p-2 rounded" title="Xóa nhân sự"><i data-lucide="trash-2" width="16"></i></button>` : ''}
+                                    </td>
+                                </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        };
+
+        // --- SETTINGS ---
+        const renderSettings = (container) => {
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">${t('settings')}</h2>
+                </div>
+                <div class="max-w-2xl bg-white rounded-xl shadow p-6">
+                    <form id="settingsForm" class="space-y-6">
+                        <!-- Language -->
+                        <div>
+                            <h3 class="text-lg font-bold mb-4 border-b pb-2">Ngôn ngữ / Language</h3>
+                            <div class="flex gap-4">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="lang" value="vi" ${state.lang === 'vi' ? 'checked' : ''}> Tiếng Việt
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="lang" value="en" ${state.lang === 'en' ? 'checked' : ''}> English
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Email Config -->
+                        <div>
+                            <h3 class="text-lg font-bold mb-4 border-b pb-2">Cấu hình Email (SMTP)</h3>
+                            <p class="text-xs text-gray-500 mb-4">Thông tin này được dùng để gửi thông báo tự động khi giao việc.</p>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">SMTP Host</label>
+                                    <input type="text" id="smtpHost" class="w-full border p-2 rounded" value="${state.settings.smtpHost || ''}">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Port</label>
+                                    <input type="text" id="smtpPort" class="w-full border p-2 rounded" value="${state.settings.smtpPort || ''}">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Email gửi</label>
+                                    <input type="email" id="emailUser" class="w-full border p-2 rounded" value="${state.settings.emailUser || ''}">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Mật khẩu ứng dụng</label>
+                                    <input type="password" id="emailPass" class="w-full border p-2 rounded" value="${state.settings.emailPass || ''}">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="pt-4 border-t flex justify-end">
+                            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Lưu Cấu Hình</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            $('#settingsForm').onsubmit = (e) => {
+                e.preventDefault();
+                // Save Lang
+                const newLang = document.querySelector('input[name="lang"]:checked').value;
+                state.lang = newLang;
+                
+                // Save Settings
+                state.settings = {
+                    smtpHost: $('#smtpHost').value,
+                    smtpPort: $('#smtpPort').value,
+                    emailUser: $('#emailUser').value,
+                    emailPass: $('#emailPass').value
+                };
+
+                saveData();
+                alert("Đã lưu cấu hình thành công!");
+                renderApp(); // Reload to apply changes
+            };
+        };
+
+        // --- REPORTS ---
+        const renderReports = (container) => {
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">${t('reports')}</h2>
+                    <button onclick="window.exportExcel()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2"><i data-lucide="download"></i> ${t('exportExcel')}</button>
+                </div>
+                
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-white p-6 rounded-xl shadow h-80">
+                         <h3 class="font-bold text-gray-700 mb-4">Thống kê theo trạng thái</h3>
+                         <canvas id="statusChart"></canvas>
+                    </div>
+                     <div class="bg-white p-6 rounded-xl shadow h-80">
+                         <h3 class="font-bold text-gray-700 mb-4">Hiệu suất nhân viên (Hoàn thành)</h3>
+                         <canvas id="performanceChart"></canvas>
+                    </div>
+                </div>
+            `;
+            
+            // Render Charts after DOM update
+            setTimeout(() => {
+                const statusCounts = {
+                    TODO: state.tasks.filter(t=>t.status==='TODO').length,
+                    IN_PROGRESS: state.tasks.filter(t=>t.status==='IN_PROGRESS').length,
+                    COMPLETED: state.tasks.filter(t=>t.status==='COMPLETED').length
+                };
+                
+                new Chart($('#statusChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Mới tạo', 'Đang làm', 'Hoàn thành'],
+                        datasets: [{ data: [statusCounts.TODO, statusCounts.IN_PROGRESS, statusCounts.COMPLETED], backgroundColor: ['#94a3b8', '#3b82f6', '#22c55e'] }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+
+                const staff = state.users.filter(u => u.role === 'STAFF');
+                new Chart($('#performanceChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: staff.map(u => u.name),
+                        datasets: [{ 
+                            label: 'Số việc hoàn thành',
+                            data: staff.map(u => state.tasks.filter(t => t.assignedTo === u.id && t.status === 'COMPLETED').length),
+                            backgroundColor: '#3b82f6'
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }, 0);
+        };
+
+        // ==========================================
+        // 4. MODALS & ACTIONS
+        // ==========================================
+
+        const createModal = (contentHtml) => {
+            const el = document.createElement('div');
+            el.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
+            el.innerHTML = `
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden slide-in max-h-[90vh] flex flex-col">
+                    <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                        <h3 class="font-bold text-lg">WorkFlow Pro</h3>
+                        <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-black"><i data-lucide="x"></i></button>
+                    </div>
+                    <div class="p-6 overflow-y-auto flex-1">
+                        ${contentHtml}
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(el);
+            renderIcons();
+            return el;
+        };
+
+        window.openTaskModal = () => {
+            const projects = state.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+            const staff = state.users.filter(u => u.role === 'STAFF').map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+            
+            const html = `
+                <form id="taskForm" class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="col-span-2">
+                             <label class="block text-sm font-medium mb-1">Loại công việc</label>
+                             <div class="flex gap-4">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="mode" value="project" checked onchange="document.getElementById('pjSelect').classList.remove('hidden')"> Dự án
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" name="mode" value="adhoc" onchange="document.getElementById('pjSelect').classList.add('hidden')"> Việc lẻ
+                                </label>
+                             </div>
+                        </div>
+                        <div id="pjSelect" class="col-span-2">
+                            <label class="block text-sm font-medium mb-1">Chọn Dự án</label>
+                            <div class="flex gap-2">
+                                <select id="projectId" class="w-full border p-2 rounded text-sm">${projects}</select>
+                                <button type="button" onclick="window.addProjectPrompt()" class="bg-green-600 text-white px-2 rounded text-xs whitespace-nowrap">+ Tạo mới</button>
+                            </div>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium mb-1">Tên đầu việc</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="taskTitle" class="w-full border p-2 rounded" required>
+                                <button type="button" id="aiBtn" onclick="window.askAI()" class="bg-purple-100 text-purple-700 px-3 rounded whitespace-nowrap hover:bg-purple-200 text-xs flex items-center gap-1"><i data-lucide="wand-2" width="14"></i> AI Gợi ý</button>
+                            </div>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium mb-1">Nội dung thực hiện</label>
+                            <textarea id="taskDesc" rows="3" class="w-full border p-2 rounded"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Ngày giao</label>
+                            <input type="date" id="startDate" class="w-full border p-2 rounded" value="${new Date().toISOString().slice(0,10)}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Hạn hoàn thành</label>
+                            <input type="date" id="deadline" class="w-full border p-2 rounded" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Người thực hiện</label>
+                            <select id="assignedTo" class="w-full border p-2 rounded" required>${staff}</select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Mức độ ưu tiên</label>
+                            <select id="priority" class="w-full border p-2 rounded">
+                                <option value="LOW">Thấp</option>
+                                <option value="MEDIUM" selected>Vừa</option>
+                                <option value="HIGH">Cao</option>
+                                <option value="URGENT">Khẩn cấp</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 mt-4">Giao Việc</button>
+                </form>
+            `;
+            
+            const modal = createModal(html);
+            $('#taskForm').onsubmit = (e) => {
+                e.preventDefault();
+                const mode = document.querySelector('input[name="mode"]:checked').value;
+                const newTask = {
+                    id: 't' + Date.now(),
+                    title: $('#taskTitle').value,
+                    desc: $('#taskDesc').value,
+                    projectId: mode === 'project' ? $('#projectId').value : '',
+                    startDate: $('#startDate').value,
+                    deadline: $('#deadline').value,
+                    assignedTo: $('#assignedTo').value,
+                    priority: $('#priority').value,
+                    status: 'TODO',
+                    progress: 0,
+                    createdAt: new Date().toISOString()
+                };
+                state.tasks.push(newTask);
+                saveData();
+                modal.remove();
+                renderPageContent(); // Refresh
+                alert("Đã giao việc thành công!");
+            };
+        };
+
+        window.openUserModal = () => {
+            const html = `
+                <form id="userForm" class="space-y-4">
+                    <input type="text" id="uName" placeholder="Họ tên" class="w-full border p-2 rounded" required>
+                    <input type="email" id="uEmail" placeholder="Email" class="w-full border p-2 rounded" required>
+                    <input type="text" id="uUser" placeholder="Tên đăng nhập" class="w-full border p-2 rounded" required>
+                    <input type="password" id="uPass" placeholder="Mật khẩu" class="w-full border p-2 rounded" required>
+                    <select id="uRole" class="w-full border p-2 rounded">
+                        <option value="STAFF">Nhân viên</option>
+                        <option value="ADMIN">Quản trị</option>
+                    </select>
+                    <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded font-bold">Thêm Nhân Sự</button>
+                </form>
+            `;
+            const modal = createModal(html);
+            $('#userForm').onsubmit = (e) => {
+                e.preventDefault();
+                if(state.users.some(u => u.username === $('#uUser').value)) return alert("Username đã tồn tại!");
+                
+                const newUser = {
+                    id: 'u' + Date.now(),
+                    name: $('#uName').value,
+                    email: $('#uEmail').value,
+                    username: $('#uUser').value,
+                    password: $('#uPass').value,
+                    role: $('#uRole').value,
+                    isFirst: true
+                };
+                state.users.push(newUser);
+                saveData();
+                modal.remove();
+                renderPageContent();
+            };
+        };
+
+        window.addProjectPrompt = () => {
+            const name = prompt("Nhập tên dự án mới:");
+            if(name) {
+                const newP = { id: 'p'+Date.now(), name, desc: '' };
+                state.projects.push(newP);
+                saveData();
+                // Refresh Select
+                const sel = $('#projectId');
+                if(sel) {
+                    const opt = document.createElement('option');
+                    opt.value = newP.id;
+                    opt.text = newP.name;
+                    opt.selected = true;
+                    sel.appendChild(opt);
+                }
+            }
+        };
+
+        window.deleteTask = (id) => {
+            if(confirm("Bạn có chắc chắn muốn xóa công việc này không?")) {
+                state.tasks = state.tasks.filter(t => t.id !== id);
+                saveData();
+                renderPageContent();
+            }
+        };
+
+        window.deleteUser = (id) => {
+            if(confirm("Xóa nhân sự này sẽ không thể khôi phục. Tiếp tục?")) {
+                state.users = state.users.filter(u => u.id !== id);
+                saveData();
+                renderPageContent();
+            }
+        };
+
+        // ==========================================
+        // 5. GLOBAL HANDLERS & INIT
+        // ==========================================
+
+        window.nav = (pageId) => {
+            state.activePage = pageId;
+            renderApp();
+        };
+
+        window.logout = () => {
+            if(confirm("Bạn muốn đăng xuất?")) {
+                state.currentUser = null;
+                localStorage.removeItem(KEYS.USER);
+                renderLogin();
+            }
+        };
+
+        // Init App
+        if (state.currentUser) {
+            renderApp();
+        } else {
+            renderLogin();
+        }
+
+    </script>
+</body>
 </html>
