@@ -80,7 +80,8 @@
             tasks: [],
             projects: [],
             activePage: 'dashboard',
-            lang: 'vi'
+            lang: 'vi',
+            refreshTimer: null
         };
 
         const DB = {
@@ -88,8 +89,8 @@
                 'Content-Type': 'application/json',
                 'X-Master-Key': CONFIG.API_KEY
             },
-            async fetch() {
-                toggleLoader(true);
+            async fetch(silent = false) {
+                if(!silent) toggleLoader(true);
                 try {
                     // Nếu người dùng chưa cấu hình key thật, dùng dữ liệu mẫu local
                     if (CONFIG.BIN_ID.includes('67b7100')) {
@@ -123,9 +124,9 @@
                         }
                     }
                 } catch (e) {
-                    Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Bin ID và API Key', 'error');
+                    if(!silent) Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Bin ID và API Key', 'error');
                 } finally {
-                    toggleLoader(false);
+                    if(!silent) toggleLoader(false);
                 }
             },
             async save() {
@@ -199,7 +200,7 @@
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
                         <div class="mt-6 text-xs text-center text-gray-400">
-                            Version 2.2 - Enhanced Reporting
+                            Version 2.3 - Auto Refresh & Session Fix
                         </div>
                     </div>
                 </div>
@@ -252,6 +253,16 @@
             const user = STATE.currentUser;
             const isAdmin = user.role === 'ADMIN';
 
+            // Start Auto Refresh Timer (10 seconds)
+            if (STATE.refreshTimer) clearInterval(STATE.refreshTimer);
+            STATE.refreshTimer = setInterval(async () => {
+                // Only refresh if NO SweetAlert modal is open (to avoid interrupting typing)
+                if (!Swal.isVisible()) {
+                    await DB.fetch(true); // Silent fetch
+                    renderContent(STATE.activePage);
+                }
+            }, 10000);
+
             $('#app').innerHTML = `
                 <!-- Sidebar -->
                 <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20 transition-all duration-300" id="sidebar">
@@ -285,7 +296,12 @@
                 <!-- Main Content -->
                 <main class="flex-1 flex flex-col overflow-hidden bg-slate-100">
                     <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10">
-                        <h2 class="text-xl font-bold text-slate-700" id="pageTitle">Tổng quan</h2>
+                        <div class="flex items-center gap-4">
+                            <h2 class="text-xl font-bold text-slate-700" id="pageTitle">Tổng quan</h2>
+                            <button onclick="manualRefresh()" class="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition" title="Làm mới dữ liệu">
+                                <i data-lucide="refresh-cw" width="18"></i>
+                            </button>
+                        </div>
                         <div class="flex items-center gap-4">
                             <span class="text-xs font-bold px-3 py-1 bg-blue-100 text-blue-700 rounded-full">${user.unit || 'AMATA'}</span>
                             <span class="text-xs font-bold px-3 py-1 ${isAdmin ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'} rounded-full">${user.role}</span>
@@ -298,7 +314,7 @@
             `;
             
             lucide.createIcons();
-            navigate('dashboard');
+            navigate(STATE.activePage);
         };
 
         const navItem = (id, icon, label) => `
@@ -661,13 +677,26 @@
         // ==========================================
         // 6. ACTIONS & MODALS
         // ==========================================
+        
+        window.manualRefresh = async () => {
+            await DB.fetch();
+            renderContent(STATE.activePage);
+            const toast = Swal.mixin({
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 2000,
+                timerProgressBar: true
+            });
+            toast.fire({ icon: 'success', title: 'Đã cập nhật dữ liệu' });
+        };
 
         window.openTaskModal = (editId = null) => {
             const task = editId ? STATE.tasks.find(t => t.id === editId) : null;
             
             // Build Staff Options for Primary Assignee
             const staffOpts = STATE.users.filter(u=>u.role==='STAFF').map(u=>
-                `<option value="${u.id}" ${task?.assignedTo===u.id?'selected':''}>${u.name}</option>`
+                `<option value="${u.id}" ${task?.assignedTo === u.id?'selected':''}>${u.name}</option>`
             ).join('');
 
             // Build Staff Checkboxes for Collaborators
@@ -1082,6 +1111,7 @@
         window.logout = () => {
             Swal.fire({title: 'Bạn muốn đăng xuất?', icon: 'question', showCancelButton: true}).then((r) => {
                 if(r.isConfirmed) {
+                    if (STATE.refreshTimer) clearInterval(STATE.refreshTimer);
                     STATE.currentUser = null;
                     sessionStorage.clear();
                     renderLogin();
@@ -1094,20 +1124,23 @@
         // ==========================================
         
         (async function init() {
-            // Check session
-            renderLogin();
-            // Try to auto-load if session exists
-            /*
+            // Check session Persistence
             const sessId = sessionStorage.getItem('session_user_id');
             if(sessId) {
-                await DB.fetch();
+                toggleLoader(true);
+                // Attempt to fetch data first
+                await DB.fetch(); 
                 const user = STATE.users.find(u => u.id === sessId);
                 if(user) {
                     STATE.currentUser = user;
                     renderApp();
+                } else {
+                    renderLogin();
                 }
+                toggleLoader(false);
+            } else {
+                renderLogin();
             }
-            */
         })();
 
     </script>
