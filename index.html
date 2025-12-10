@@ -80,7 +80,8 @@
             tasks: [],
             projects: [],
             activePage: 'dashboard',
-            lang: 'vi'
+            lang: 'vi',
+            refreshTimer: null
         };
 
         const DB = {
@@ -88,8 +89,8 @@
                 'Content-Type': 'application/json',
                 'X-Master-Key': CONFIG.API_KEY
             },
-            async fetch() {
-                toggleLoader(true);
+            async fetch(silent = false) {
+                if(!silent) toggleLoader(true);
                 try {
                     // Nếu người dùng chưa cấu hình key thật, dùng dữ liệu mẫu local
                     if (CONFIG.BIN_ID.includes('67b7100')) {
@@ -123,9 +124,9 @@
                         }
                     }
                 } catch (e) {
-                    Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Bin ID và API Key', 'error');
+                    if(!silent) Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Bin ID và API Key', 'error');
                 } finally {
-                    toggleLoader(false);
+                    if(!silent) toggleLoader(false);
                 }
             },
             async save() {
@@ -175,6 +176,12 @@
             return task.status; // TODO or IN_PROGRESS
         };
 
+        const getAssignees = (task) => {
+            // Normalize assignedTo to always be an array
+            const ids = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
+            return ids;
+        };
+
         // ==========================================
         // 4. CORE UI RENDERERS
         // ==========================================
@@ -199,7 +206,7 @@
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
                         <div class="mt-6 text-xs text-center text-gray-400">
-                            Version 2.2 - Enhanced Reporting
+                            Version 2.3 - Auto Refresh & Session Fix
                         </div>
                     </div>
                 </div>
@@ -252,6 +259,16 @@
             const user = STATE.currentUser;
             const isAdmin = user.role === 'ADMIN';
 
+            // Start Auto Refresh Timer (10 seconds)
+            if (STATE.refreshTimer) clearInterval(STATE.refreshTimer);
+            STATE.refreshTimer = setInterval(async () => {
+                // Only refresh if NO SweetAlert modal is open (to avoid interrupting typing)
+                if (!Swal.isVisible()) {
+                    await DB.fetch(true); // Silent fetch
+                    renderContent(STATE.activePage);
+                }
+            }, 10000);
+
             $('#app').innerHTML = `
                 <!-- Sidebar -->
                 <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20 transition-all duration-300" id="sidebar">
@@ -285,7 +302,12 @@
                 <!-- Main Content -->
                 <main class="flex-1 flex flex-col overflow-hidden bg-slate-100">
                     <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10">
-                        <h2 class="text-xl font-bold text-slate-700" id="pageTitle">Tổng quan</h2>
+                        <div class="flex items-center gap-4">
+                            <h2 class="text-xl font-bold text-slate-700" id="pageTitle">Tổng quan</h2>
+                            <button onclick="manualRefresh()" class="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition" title="Làm mới dữ liệu">
+                                <i data-lucide="refresh-cw" width="18"></i>
+                            </button>
+                        </div>
                         <div class="flex items-center gap-4">
                             <span class="text-xs font-bold px-3 py-1 bg-blue-100 text-blue-700 rounded-full">${user.unit || 'AMATA'}</span>
                             <span class="text-xs font-bold px-3 py-1 ${isAdmin ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'} rounded-full">${user.role}</span>
@@ -298,7 +320,7 @@
             `;
             
             lucide.createIcons();
-            navigate('dashboard');
+            navigate(STATE.activePage);
         };
 
         const navItem = (id, icon, label) => `
@@ -363,8 +385,11 @@
 
             // Calculate Staff Stats
             const staffStats = STATE.users.filter(u => u.role === 'STAFF').map(u => {
-                // Count tasks where user is Main Assignee or Collaborator
-                const myTasks = tasks.filter(t => t.assignedTo === u.id || (t.collaborators && t.collaborators.includes(u.id)));
+                // Count tasks where user is Main Assignee (in list) or Collaborator
+                const myTasks = tasks.filter(t => {
+                    const assignees = getAssignees(t);
+                    return assignees.includes(u.id) || (t.collaborators && t.collaborators.includes(u.id));
+                });
                 const done = myTasks.filter(t => t.status === 'COMPLETED').length;
                 return { name: u.name, total: myTasks.length, done: done, overdue: myTasks.filter(t => getTaskStatus(t) === 'OVERDUE').length };
             });
@@ -433,11 +458,12 @@
         const renderTasks = (el) => {
             const isAdmin = STATE.currentUser.role === 'ADMIN';
             // Show task if Admin OR Assigned To OR Is Collaborator
-            const tasks = STATE.tasks.filter(t => 
-                isAdmin || 
-                t.assignedTo === STATE.currentUser.id || 
-                (t.collaborators && t.collaborators.includes(STATE.currentUser.id))
-            );
+            const tasks = STATE.tasks.filter(t => {
+                const assignees = getAssignees(t);
+                return isAdmin || 
+                assignees.includes(STATE.currentUser.id) || 
+                (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
+            });
             
             el.innerHTML = `
                 <div class="flex justify-between mb-4">
@@ -453,7 +479,7 @@
                             <tr>
                                 <th>Loại</th>
                                 <th>Tiêu đề / Dự án</th>
-                                <th>Chủ trì</th>
+                                <th>Chủ trì (Nhóm)</th>
                                 <th>Phối hợp</th>
                                 <th>Ngày giao</th>
                                 <th>Hạn chót</th>
@@ -464,7 +490,8 @@
                         <tbody>
                             ${tasks.map(t => {
                                 const st = CONSTANTS.STATUS[getTaskStatus(t)];
-                                const assignee = STATE.users.find(u => u.id === t.assignedTo)?.name || 'N/A';
+                                const assignees = getAssignees(t);
+                                const assigneeNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
                                 const collabCount = (t.collaborators || []).length;
                                 const pj = t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : 'Việc lẻ';
                                 
@@ -476,7 +503,7 @@
                                         <div class="text-xs text-gray-500 truncate max-w-[200px]">${pj}</div>
                                         ${t.extensionStatus === 'PENDING' ? '<span class="text-[10px] bg-yellow-100 text-yellow-700 px-1 rounded ml-1">Xin gia hạn</span>' : ''}
                                     </td>
-                                    <td class="font-medium text-blue-900">${assignee}</td>
+                                    <td class="font-medium text-blue-900 truncate max-w-[150px]" title="${assigneeNames}">${assigneeNames}</td>
                                     <td class="text-xs text-gray-500">${collabCount > 0 ? `+${collabCount} nhân sự` : '-'}</td>
                                     <td>${t.startDate}</td>
                                     <td>
@@ -543,14 +570,15 @@
         /* --- REPORTS --- */
         const renderReports = (el) => {
             const data = STATE.tasks.map(t => {
-                const u = STATE.users.find(x => x.id === t.assignedTo);
+                const assignees = getAssignees(t);
+                const mainNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
                 const collabs = (t.collaborators || []).map(cid => STATE.users.find(x=>x.id===cid)?.name).join(', ');
                 return {
                     "Mã việc": t.id,
                     "Dự án": t.projectId ? (STATE.projects.find(p=>p.id===t.projectId)?.name) : "Việc lẻ",
                     "Đầu việc": t.title,
                     "Nội dung": t.description || '',
-                    "Chủ trì": u ? u.name : "N/A",
+                    "Chủ trì": mainNames,
                     "Phối hợp": collabs,
                     "Ngày giao": t.startDate,
                     "Hạn chót": t.deadline,
@@ -661,20 +689,38 @@
         // ==========================================
         // 6. ACTIONS & MODALS
         // ==========================================
+        
+        window.manualRefresh = async () => {
+            await DB.fetch();
+            renderContent(STATE.activePage);
+            const toast = Swal.mixin({
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 2000,
+                timerProgressBar: true
+            });
+            toast.fire({ icon: 'success', title: 'Đã cập nhật dữ liệu' });
+        };
 
         window.openTaskModal = (editId = null) => {
             const task = editId ? STATE.tasks.find(t => t.id === editId) : null;
             
-            // Build Staff Options for Primary Assignee
-            const staffOpts = STATE.users.filter(u=>u.role==='STAFF').map(u=>
-                `<option value="${u.id}" ${task?.assignedTo===u.id?'selected':''}>${u.name}</option>`
-            ).join('');
+            // Handle Assigned To Multiple (Checkbox Logic)
+            const currentAssignees = task ? getAssignees(task) : [];
+            const assignChecks = STATE.users.filter(u=>u.role==='STAFF').map(u => {
+                const isChecked = currentAssignees.includes(u.id);
+                return `<label class="flex items-center space-x-2 text-sm p-1 hover:bg-gray-50 rounded cursor-pointer">
+                    <input type="checkbox" class="assign-checkbox w-4 h-4 text-blue-600" value="${u.id}" ${isChecked?'checked':''}>
+                    <span class="text-slate-700 font-medium">${u.name}</span>
+                </label>`
+            }).join('');
 
             // Build Staff Checkboxes for Collaborators
             const currentCollabs = task?.collaborators || [];
             const collabChecks = STATE.users.filter(u=>u.role==='STAFF').map(u => `
                 <label class="flex items-center space-x-2 text-sm p-1 hover:bg-gray-50 rounded cursor-pointer">
-                    <input type="checkbox" class="collab-checkbox w-4 h-4 text-blue-600" value="${u.id}" ${currentCollabs.includes(u.id)?'checked':''}>
+                    <input type="checkbox" class="collab-checkbox w-4 h-4 text-amber-600" value="${u.id}" ${currentCollabs.includes(u.id)?'checked':''}>
                     <span class="text-slate-700">${u.name}</span>
                 </label>
             `).join('');
@@ -718,11 +764,13 @@
                                 <input type="date" id="swal-end" class="swal2-input m-0 w-full h-10 text-sm" value="${task?.deadline||''}">
                             </div>
                         </div>
-
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-bold mb-1 text-gray-600">Cá nhân chủ trì <span class="text-red-500">*</span></label>
-                                <select id="swal-assign" class="swal2-input m-0 w-full h-10 text-sm">${staffOpts}</select>
+                        
+                         <div class="grid grid-cols-2 gap-3">
+                             <div>
+                                <label class="block text-xs font-bold mb-1 text-blue-800">Cá nhân/Nhóm chủ trì <span class="text-red-500">*</span></label>
+                                <div class="border border-blue-200 rounded p-2 max-h-24 overflow-y-auto grid grid-cols-1 gap-1 custom-scroll bg-blue-50">
+                                    ${assignChecks}
+                                </div>
                             </div>
                             <div>
                                 <label class="block text-xs font-bold mb-1 text-gray-600">Trạng thái</label>
@@ -752,6 +800,7 @@
                 cancelButtonText: 'Hủy',
                 focusConfirm: false,
                 preConfirm: () => {
+                    const assignees = Array.from(document.querySelectorAll('.assign-checkbox:checked')).map(el => el.value);
                     const collabs = Array.from(document.querySelectorAll('.collab-checkbox:checked')).map(el => el.value);
                     return {
                         title: $('#swal-title').value,
@@ -760,7 +809,7 @@
                         pjName: $('#swal-pj').value,
                         start: $('#swal-start').value,
                         end: $('#swal-end').value,
-                        assign: $('#swal-assign').value,
+                        assign: assignees,
                         collaborators: collabs,
                         notes: $('#swal-note').value,
                         status: editId ? $('#swal-status').value : 'TODO'
@@ -769,7 +818,7 @@
             }).then(async (result) => {
                 if (result.isConfirmed) {
                     const d = result.value;
-                    if (!d.title || !d.end || !d.assign) return Swal.fire('Thiếu thông tin', 'Vui lòng nhập Tên việc, Hạn chót và Người chủ trì', 'error');
+                    if (!d.title || !d.end || d.assign.length === 0) return Swal.fire('Thiếu thông tin', 'Vui lòng nhập Tên việc, Hạn chót và Chọn ít nhất 1 người chủ trì', 'error');
                     
                     let pjId = '';
                     if (d.type === 'project' && d.pjName) {
@@ -788,7 +837,7 @@
                             projectId: pjId, 
                             startDate: d.start, 
                             deadline: d.end, 
-                            assignedTo: d.assign,
+                            assignedTo: d.assign, // Array
                             collaborators: d.collaborators,
                             notes: d.notes,
                             status: d.status
@@ -801,7 +850,7 @@
                             projectId: pjId, 
                             startDate: d.start, 
                             deadline: d.end, 
-                            assignedTo: d.assign,
+                            assignedTo: d.assign, // Array
                             collaborators: d.collaborators,
                             notes: d.notes,
                             status: 'TODO', 
@@ -864,9 +913,11 @@
 
         window.viewTask = (id) => {
             const t = STATE.tasks.find(x => x.id === id);
-            const u = STATE.users.find(x => x.id === t.assignedTo);
+            const assignees = getAssignees(t);
+            const assignNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
+            
             // Check if current user is owner or collaborator
-            const isMyTask = STATE.currentUser.id === t.assignedTo || (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
+            const isMyTask = assignees.includes(STATE.currentUser.id) || (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
             const isAdmin = STATE.currentUser.role === 'ADMIN';
             const collabNames = (t.collaborators || []).map(cid => STATE.users.find(us => us.id === cid)?.name).join(', ') || 'Không có';
             
@@ -901,6 +952,14 @@
                                     <input type="text" id="rpt-note" class="w-full text-sm p-2 border rounded" value="${t.reportNotes || ''}">
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- MARK COMPLETED BUTTON -->
+                         <div class="mt-4 pt-3 border-t border-blue-200">
+                             <button type="button" onclick="markCompleted('${t.id}')" class="w-full bg-green-600 text-white font-bold py-2 rounded hover:bg-green-700 transition flex items-center justify-center gap-2">
+                                <i data-lucide="check-circle"></i> ĐÃ HOÀN THÀNH
+                             </button>
+                             <p class="text-[10px] text-center text-gray-500 mt-1">Bấm nút này để chốt hoàn thành công việc</p>
                         </div>
                     </div>
                 `;
@@ -961,7 +1020,7 @@
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <strong class="text-gray-700 block mb-1">Chủ trì:</strong>
-                                <span class="text-blue-700 font-bold bg-blue-50 px-2 py-1 rounded">${u ? u.name : 'N/A'}</span>
+                                <span class="text-blue-700 font-bold bg-blue-50 px-2 py-1 rounded">${assignNames}</span>
                             </div>
                              <div>
                                 <strong class="text-gray-700 block mb-1">Trạng thái:</strong>
@@ -1012,6 +1071,42 @@
                     renderTasks($('#content'));
                 }
             });
+        };
+
+        window.markCompleted = async (id) => {
+            // Get values currently in the inputs before Swal closes
+            const resInput = document.getElementById('rpt-result');
+            const issInput = document.getElementById('rpt-issues');
+            const noteInput = document.getElementById('rpt-note');
+            
+            const currentRes = resInput ? resInput.value : '';
+            const currentIss = issInput ? issInput.value : '';
+            const currentNote = noteInput ? noteInput.value : '';
+
+            const confirm = await Swal.fire({
+                title: 'Xác nhận hoàn thành',
+                text: 'Hệ thống sẽ cập nhật trạng thái việc này là ĐÃ HOÀN THÀNH. Bạn có chắc chắn không?',
+                icon: 'success',
+                showCancelButton: true,
+                confirmButtonColor: '#16a34a',
+                confirmButtonText: 'Đồng ý, Hoàn thành ngay',
+                cancelButtonText: 'Hủy'
+            });
+
+            if (confirm.isConfirmed) {
+                const t = STATE.tasks.find(x => x.id === id);
+                if(t) {
+                    t.status = 'COMPLETED';
+                    // Save input data if user entered something
+                    if(currentRes) t.reportResult = currentRes;
+                    if(currentIss) t.reportIssues = currentIss;
+                    if(currentNote) t.reportNotes = currentNote;
+                    
+                    await DB.save();
+                    Swal.fire('Tuyệt vời', 'Công việc đã được chuyển sang trạng thái Hoàn thành', 'success');
+                    renderTasks($('#content')); // Refresh list
+                }
+            }
         };
 
         window.approveExt = async (taskId, isApproved) => {
@@ -1082,6 +1177,7 @@
         window.logout = () => {
             Swal.fire({title: 'Bạn muốn đăng xuất?', icon: 'question', showCancelButton: true}).then((r) => {
                 if(r.isConfirmed) {
+                    if (STATE.refreshTimer) clearInterval(STATE.refreshTimer);
                     STATE.currentUser = null;
                     sessionStorage.clear();
                     renderLogin();
@@ -1094,20 +1190,23 @@
         // ==========================================
         
         (async function init() {
-            // Check session
-            renderLogin();
-            // Try to auto-load if session exists
-            /*
+            // Check session Persistence
             const sessId = sessionStorage.getItem('session_user_id');
             if(sessId) {
-                await DB.fetch();
+                toggleLoader(true);
+                // Attempt to fetch data first
+                await DB.fetch(); 
                 const user = STATE.users.find(u => u.id === sessId);
                 if(user) {
                     STATE.currentUser = user;
                     renderApp();
+                } else {
+                    renderLogin();
                 }
+                toggleLoader(false);
+            } else {
+                renderLogin();
             }
-            */
         })();
 
     </script>
