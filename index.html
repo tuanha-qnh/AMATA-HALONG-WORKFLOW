@@ -1,820 +1,875 @@
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ thống Quản lý Giao việc - WorkFlow Pro</title>
+    <title>AMATA HALONG WORKFLOW</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
-    <!-- Google GenAI Import Map -->
-    <script type="importmap">
-    {
-      "imports": {
-        "@google/genai": "https://esm.run/@google/genai"
-      }
-    }
-    </script>
+    <!-- SweetAlert2 for nice popups -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
-        .fade-in { animation: fadeIn 0.3s ease-out; }
-        .slide-in { animation: slideIn 0.3s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+        body { font-family: 'Roboto', sans-serif; background-color: #f0f2f5; }
+        .sidebar-link.active { background-color: #1e3a8a; border-left: 4px solid #60a5fa; }
+        .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center; }
         
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        /* Table Styles */
+        .amt-table th { background-color: #f8fafc; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding: 0.75rem 1rem; }
+        .amt-table td { padding: 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.875rem; color: #334155; }
+        .amt-table tr:hover { background-color: #f1f5f9; }
     </style>
 </head>
-<body class="text-gray-800 h-screen overflow-hidden flex flex-col">
+<body class="h-screen flex overflow-hidden text-slate-800">
 
-    <!-- App Container -->
-    <div id="app" class="flex-1 flex h-full overflow-hidden">
-        <!-- Content will be injected here by JS -->
+    <!-- Loading Spinner -->
+    <div id="loader" class="loading-overlay hidden">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-600"></div>
     </div>
 
-    <!-- MAIN SCRIPT -->
-    <script type="module">
-        import { GoogleGenAI } from "@google/genai";
+    <!-- App Container -->
+    <div id="app" class="flex w-full h-full">
+        <!-- Rendered by JS -->
+    </div>
 
+    <script>
         // ==========================================
-        // 1. DATA & STATE MANAGEMENT
+        // 1. CONFIGURATION (CẤU HÌNH DATABASE ONLINE)
         // ==========================================
         
-        const KEYS = {
-            USERS: 'wf_users',
-            TASKS: 'wf_tasks',
-            PROJECTS: 'wf_projects',
-            REPORTS: 'wf_reports',
-            USER: 'wf_current_user',
-            LANG: 'wf_lang',
-            SETTINGS: 'wf_settings'
+        // HƯỚNG DẪN: Đăng ký JSONBin.io, tạo Bin mới với nội dung JSON rỗng ban đầu.
+        // Copy Bin ID và X-Master-Key vào đây.
+        const CONFIG = {
+            // Thay đổi 2 dòng này bằng Key của bạn
+            BIN_ID: '69399c5bae596e708f908443', 
+            API_KEY: '$2a$10$SXHVbYBI5MNWEGuKO/hhoeg47HeYzilZB29gM4yofDMP0nbXqER1q' 
+            // Lưu ý: Key mẫu trên là giả, bạn phải tự tạo key riêng thì dữ liệu mới được bảo mật
         };
 
-        const MOCK_DATA = {
-            users: [
-                { id: 'u1', username: 'admin', password: '123', name: 'Quản trị viên', email: 'admin@amata.com', role: 'ADMIN', isFirst: false },
-                { id: 'u2', username: 'staff1', password: '123', name: 'Nguyễn Văn A', email: 'a@amata.com', role: 'STAFF', isFirst: true },
-                { id: 'u3', username: 'staff2', password: '123', name: 'Trần Thị B', email: 'b@amata.com', role: 'STAFF', isFirst: false }
-            ],
-            projects: [
-                { id: 'p1', name: 'Chiến dịch Mùa Hè', desc: 'Marketing tổng lực' },
-                { id: 'p2', name: 'Nâng cấp Website', desc: 'IT Dept' }
-            ],
-            tasks: [
-                { id: 't1', title: 'Thiết kế Banner', desc: 'Banner Facebook kích thước 1200x630', projectId: 'p1', status: 'IN_PROGRESS', priority: 'HIGH', assignedTo: 'u2', deadline: '2023-12-20', progress: 50 },
-                { id: 't2', title: 'Sửa máy in tầng 2', desc: 'Liên hệ nhà cung cấp', projectId: '', status: 'TODO', priority: 'LOW', assignedTo: 'u3', deadline: '2024-05-01', progress: 0 }
-            ]
-        };
-
-        // State
-        let state = {
-            currentUser: JSON.parse(localStorage.getItem(KEYS.USER)) || null,
-            users: JSON.parse(localStorage.getItem(KEYS.USERS)) || MOCK_DATA.users,
-            tasks: JSON.parse(localStorage.getItem(KEYS.TASKS)) || MOCK_DATA.tasks,
-            projects: JSON.parse(localStorage.getItem(KEYS.PROJECTS)) || MOCK_DATA.projects,
-            activePage: 'dashboard',
-            lang: localStorage.getItem(KEYS.LANG) || 'vi',
-            settings: JSON.parse(localStorage.getItem(KEYS.SETTINGS)) || {
-                smtpHost: 'smtp.gmail.com',
-                smtpPort: '587',
-                emailUser: '',
-                emailPass: ''
-            }
-        };
-
-        // Initialize Storage if empty
-        if (!localStorage.getItem(KEYS.USERS)) {
-            localStorage.setItem(KEYS.USERS, JSON.stringify(MOCK_DATA.users));
-            localStorage.setItem(KEYS.TASKS, JSON.stringify(MOCK_DATA.tasks));
-            localStorage.setItem(KEYS.PROJECTS, JSON.stringify(MOCK_DATA.projects));
-        }
-
-        const saveData = () => {
-            localStorage.setItem(KEYS.USERS, JSON.stringify(state.users));
-            localStorage.setItem(KEYS.TASKS, JSON.stringify(state.tasks));
-            localStorage.setItem(KEYS.PROJECTS, JSON.stringify(state.projects));
-            localStorage.setItem(KEYS.SETTINGS, JSON.stringify(state.settings));
-            localStorage.setItem(KEYS.LANG, state.lang);
-        };
-
-        // Dictionary
-        const T = {
-            vi: {
-                dashboard: "Tổng quan", tasks: "Công việc", reports: "Báo cáo", users: "Nhân sự", settings: "Cấu hình", logout: "Đăng xuất",
-                total: "Tổng việc", completed: "Hoàn thành", overdue: "Quá hạn", processing: "Đang xử lý",
-                assignTask: "Giao việc mới", exportExcel: "Xuất Excel",
-                status_TODO: "Mới tạo", status_IN_PROGRESS: "Đang làm", status_COMPLETED: "Hoàn thành",
-                p_LOW: "Thấp", p_MEDIUM: "Vừa", p_HIGH: "Cao", p_URGENT: "Khẩn cấp"
+        const CONSTANTS = {
+            STATUS: {
+                TODO: { label: 'Mới tạo', color: 'bg-gray-100 text-gray-600' },
+                IN_PROGRESS: { label: 'Đang thực hiện', color: 'bg-blue-100 text-blue-600' },
+                COMPLETED: { label: 'Hoàn thành', color: 'bg-green-100 text-green-600' },
+                OVERDUE: { label: 'Quá hạn', color: 'bg-red-100 text-red-600' }
             },
-            en: {
-                dashboard: "Dashboard", tasks: "Tasks", reports: "Reports", users: "Users", settings: "Settings", logout: "Logout",
-                total: "Total", completed: "Completed", overdue: "Overdue", processing: "Processing",
-                assignTask: "New Task", exportExcel: "Export Excel",
-                status_TODO: "To Do", status_IN_PROGRESS: "In Progress", status_COMPLETED: "Completed",
-                p_LOW: "Low", p_MEDIUM: "Medium", p_HIGH: "High", p_URGENT: "Urgent"
+            PRIORITY: {
+                LOW: 'Thấp', MEDIUM: 'Vừa', HIGH: 'Cao', URGENT: 'Khẩn cấp'
             }
         };
 
-        const t = (key) => T[state.lang][key] || key;
-
         // ==========================================
-        // 2. HELPER FUNCTIONS
+        // 2. STATE & DATABASE SERVICE
         // ==========================================
 
-        const $ = (sel) => document.querySelector(sel);
-        
-        const renderIcons = () => lucide.createIcons();
-
-        const formatDate = (dateStr) => {
-            if(!dateStr) return '';
-            return new Date(dateStr).toLocaleDateString('vi-VN');
+        let STATE = {
+            currentUser: null,
+            users: [],
+            tasks: [],
+            projects: [],
+            activePage: 'dashboard',
+            lang: 'vi'
         };
 
-        // Export Excel (CSV)
-        window.exportExcel = () => {
-            const headers = ['ID', 'Dự án', 'Tiêu đề', 'Mô tả', 'Người thực hiện', 'Hạn chót', 'Trạng thái', 'Tiến độ(%)'];
-            const rows = state.tasks.map(task => {
-                const pj = state.projects.find(p => p.id === task.projectId)?.name || 'Việc lẻ';
-                const u = state.users.find(u => u.id === task.assignedTo)?.name || 'N/A';
-                return [
-                    task.id, `"${pj}"`, `"${task.title}"`, `"${task.desc}"`, `"${u}"`, 
-                    task.deadline, t('status_' + task.status), task.progress
-                ].join(',');
-            });
-            
-            const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `Bao_Cao_Cong_Viec_${new Date().toISOString().slice(0,10)}.csv`;
-            link.click();
-        };
-
-        // AI Suggestion
-        window.askAI = async () => {
-            const title = $('#taskTitle').value;
-            if(!title) return alert("Vui lòng nhập tên công việc trước!");
-            
-            const btn = $('#aiBtn');
-            btn.innerHTML = 'Thinking...';
-            btn.disabled = true;
-
-            try {
-                const apiKey = localStorage.getItem('GEMINI_API_KEY');
-                
-                if(!apiKey) {
-                    const inputKey = prompt("Vui lòng nhập Google Gemini API Key để dùng tính năng này:");
-                    if(inputKey) localStorage.setItem('GEMINI_API_KEY', inputKey);
-                    else throw new Error("Thiếu API Key");
+        const DB = {
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': CONFIG.API_KEY
+            },
+            async fetch() {
+                toggleLoader(true);
+                try {
+                    // Nếu người dùng chưa cấu hình key thật, dùng dữ liệu mẫu local
+                    if (CONFIG.BIN_ID.includes('67b7100')) {
+                        console.warn("Using Local Mock Data because API Key is placeholder");
+                        const local = localStorage.getItem('AMATA_DB');
+                        if (local) {
+                            const data = JSON.parse(local);
+                            STATE.users = data.users || [];
+                            STATE.tasks = data.tasks || [];
+                            STATE.projects = data.projects || [];
+                        } else {
+                            // Init default admin if totally empty
+                            STATE.users = [{id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false}];
+                        }
+                    } else {
+                        // Gọi Online Database
+                        const res = await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.BIN_ID}/latest`, {
+                            method: 'GET',
+                            headers: DB.headers
+                        });
+                        if (!res.ok) throw new Error("Không thể kết nối Database!");
+                        const json = await res.json();
+                        STATE.users = json.record.users || [];
+                        STATE.tasks = json.record.tasks || [];
+                        STATE.projects = json.record.projects || [];
+                    }
+                } catch (e) {
+                    Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Bin ID và API Key', 'error');
+                } finally {
+                    toggleLoader(false);
                 }
-
-                const ai = new GoogleGenAI({ apiKey: localStorage.getItem('GEMINI_API_KEY') });
-                const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
-                const result = await model.generateContent(`Viết mô tả công việc ngắn gọn và gạch đầu dòng 3 bước cần làm cho đầu việc: "${title}"`);
-                
-                $('#taskDesc').value = result.response.text();
-            } catch (err) {
-                alert("Lỗi AI: " + err.message);
-            } finally {
-                btn.innerHTML = '<i data-lucide="wand-2"></i> AI Gợi ý';
-                renderIcons();
-                btn.disabled = false;
+            },
+            async save() {
+                toggleLoader(true);
+                const payload = { users: STATE.users, tasks: STATE.tasks, projects: STATE.projects };
+                try {
+                    if (CONFIG.BIN_ID.includes('67b7100')) {
+                        localStorage.setItem('AMATA_DB', JSON.stringify(payload));
+                    } else {
+                        await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.BIN_ID}`, {
+                            method: 'PUT',
+                            headers: DB.headers,
+                            body: JSON.stringify(payload)
+                        });
+                    }
+                } catch (e) {
+                    Swal.fire('Lỗi lưu trữ', 'Không thể lưu dữ liệu lên Online', 'error');
+                } finally {
+                    toggleLoader(false);
+                }
             }
         };
 
         // ==========================================
-        // 3. RENDER VIEWS
+        // 3. UTILITIES
+        // ==========================================
+
+        const $ = (s) => document.querySelector(s);
+        const toggleLoader = (show) => $('#loader').classList.toggle('hidden', !show);
+        const uuid = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+        
+        const generateEmpCode = () => {
+            // Format AMTxxxxx
+            if (STATE.users.length === 0) return 'AMT00001';
+            const maxId = STATE.users.reduce((max, u) => {
+                const num = parseInt(u.empCode.replace('AMT', ''));
+                return num > max ? num : max;
+            }, 0);
+            return 'AMT' + String(maxId + 1).padStart(5, '0');
+        };
+
+        const getTaskStatus = (task) => {
+            if (task.status === 'COMPLETED') return 'COMPLETED';
+            const today = new Date().setHours(0,0,0,0);
+            const deadline = new Date(task.deadline).setHours(0,0,0,0);
+            if (deadline < today) return 'OVERDUE';
+            return task.status; // TODO or IN_PROGRESS
+        };
+
+        // ==========================================
+        // 4. CORE UI RENDERERS
         // ==========================================
 
         const renderLogin = () => {
             $('#app').innerHTML = `
-                <div class="w-full h-full flex items-center justify-center bg-slate-900 p-4">
-                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md fade-in">
-                        <h1 class="text-3xl font-bold text-center mb-6 text-blue-600">WorkFlow Pro</h1>
+                <div class="w-full flex items-center justify-center bg-slate-900">
+                    <div class="bg-white p-8 rounded-lg shadow-2xl w-96 animate-fade-in">
+                        <div class="text-center mb-6">
+                            <h1 class="text-2xl font-bold text-blue-800">AMATA HALONG</h1>
+                            <p class="text-sm text-gray-500 tracking-widest font-semibold mt-1">WORKFLOW SYSTEM</p>
+                        </div>
                         <form id="loginForm" class="space-y-4">
                             <div>
-                                <label class="block text-sm font-medium mb-1">Tên đăng nhập</label>
-                                <input type="text" id="loginUser" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="admin">
+                                <label class="block text-xs font-bold text-gray-600 mb-1 uppercase">Tên đăng nhập</label>
+                                <input type="text" id="username" class="w-full border border-gray-300 p-2.5 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Username">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium mb-1">Mật khẩu</label>
-                                <input type="password" id="loginPass" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="123">
+                                <label class="block text-xs font-bold text-gray-600 mb-1 uppercase">Mật khẩu</label>
+                                <input type="password" id="password" class="w-full border border-gray-300 p-2.5 rounded focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Password">
                             </div>
-                            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 font-bold">Đăng nhập</button>
+                            <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
-                        <p class="text-xs text-center mt-4 text-gray-400">Default: admin / 123</p>
+                        <div class="mt-6 text-xs text-center text-gray-400">
+                            Version 2.0 - Online Cloud Database
+                        </div>
                     </div>
                 </div>
             `;
-            
-            $('#loginForm').onsubmit = (e) => {
+
+            $('#loginForm').onsubmit = async (e) => {
                 e.preventDefault();
-                const u = $('#loginUser').value;
-                const p = $('#loginPass').value;
-                const user = state.users.find(user => user.username === u && user.password === p);
+                await DB.fetch(); // Fetch latest data before login
+                const u = $('#username').value;
+                const p = $('#password').value;
+                const user = STATE.users.find(x => x.username === u && x.password === p);
                 
-                if (user) {
+                if (!user) {
+                    Swal.fire('Lỗi', 'Sai tên đăng nhập hoặc mật khẩu', 'error');
+                } else {
                     if (user.isFirst) {
-                        renderForceChangePass(user);
+                        forceChangePassword(user);
                     } else {
-                        state.currentUser = user;
-                        localStorage.setItem(KEYS.USER, JSON.stringify(user));
+                        STATE.currentUser = user;
+                        sessionStorage.setItem('session_user_id', user.id);
                         renderApp();
                     }
-                } else {
-                    alert('Sai thông tin đăng nhập!');
                 }
             };
         };
 
-        const renderForceChangePass = (user) => {
-             $('#app').innerHTML = `
-                <div class="w-full h-full flex items-center justify-center bg-gray-100">
-                    <div class="bg-white p-8 rounded-xl shadow-lg w-96 border-t-4 border-yellow-500 slide-in">
-                        <h2 class="text-xl font-bold mb-4">Đổi mật khẩu lần đầu</h2>
-                        <form id="changePassForm" class="space-y-4">
-                            <input type="password" id="newPass" class="w-full border p-2 rounded" placeholder="Mật khẩu mới" required>
-                            <button type="submit" class="w-full bg-yellow-500 text-white py-2 rounded font-bold">Cập nhật</button>
-                        </form>
-                    </div>
-                </div>
-            `;
-            $('#changePassForm').onsubmit = (e) => {
-                e.preventDefault();
-                user.password = $('#newPass').value;
-                user.isFirst = false;
-                // Update in list
-                const idx = state.users.findIndex(u => u.id === user.id);
-                state.users[idx] = user;
-                saveData();
-                alert("Đổi mật khẩu thành công! Vui lòng đăng nhập lại.");
-                renderLogin();
-            };
-        }
+        const forceChangePassword = (user) => {
+            Swal.fire({
+                title: 'Đổi mật khẩu lần đầu',
+                text: 'Bạn bắt buộc phải đổi mật khẩu mặc định để tiếp tục.',
+                input: 'password',
+                inputPlaceholder: 'Nhập mật khẩu mới',
+                allowOutsideClick: false,
+                confirmButtonText: 'Cập nhật',
+                preConfirm: (pass) => {
+                    if (!pass || pass.length < 4) return Swal.showValidationMessage('Mật khẩu quá ngắn');
+                    return pass;
+                }
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    user.password = result.value;
+                    user.isFirst = false;
+                    await DB.save();
+                    Swal.fire('Thành công', 'Vui lòng đăng nhập lại', 'success').then(renderLogin);
+                }
+            });
+        };
 
         const renderApp = () => {
-            const isAdmin = state.currentUser.role === 'ADMIN';
-            
-            const menu = [
-                { id: 'dashboard', icon: 'layout-dashboard', label: t('dashboard') },
-                { id: 'tasks', icon: 'check-square', label: t('tasks') },
-                { id: 'reports', icon: 'bar-chart-2', label: t('reports'), adminOnly: true },
-                { id: 'users', icon: 'users', label: t('users'), adminOnly: true },
-                { id: 'settings', icon: 'settings', label: t('settings') }
-            ];
-
-            const sidebarHtml = menu.map(item => {
-                if (item.adminOnly && !isAdmin) return '';
-                const active = state.activePage === item.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700';
-                return `<button onclick="window.nav('${item.id}')" class="w-full flex items-center gap-3 px-4 py-3 rounded mb-1 transition-colors ${active}">
-                    <i data-lucide="${item.icon}" width="20"></i> ${item.label}
-                </button>`;
-            }).join('');
+            const user = STATE.currentUser;
+            const isAdmin = user.role === 'ADMIN';
 
             $('#app').innerHTML = `
-                <aside class="w-64 bg-slate-800 text-white flex flex-col shadow-xl flex-shrink-0">
-                    <div class="p-6 border-b border-slate-700">
-                        <h1 class="text-2xl font-bold text-blue-400">WorkFlow</h1>
+                <!-- Sidebar -->
+                <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20 transition-all duration-300" id="sidebar">
+                    <div class="h-16 flex items-center justify-center border-b border-slate-700 bg-slate-800">
+                        <span class="font-bold text-lg tracking-wider text-blue-400">AMATA WORKFLOW</span>
                     </div>
-                    <nav class="flex-1 p-4">${sidebarHtml}</nav>
-                    <div class="p-4 border-t border-slate-700 bg-slate-900/50">
-                        <div class="flex items-center gap-3 mb-4">
-                            <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center font-bold">
-                                ${state.currentUser.name.charAt(0)}
-                            </div>
-                            <div class="overflow-hidden">
-                                <div class="truncate text-sm font-medium">${state.currentUser.name}</div>
-                                <div class="text-xs text-slate-400">${state.currentUser.role}</div>
-                            </div>
+                    
+                    <div class="p-4 border-b border-slate-700 flex items-center gap-3 bg-slate-800/50">
+                        <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-lg">${user.name.charAt(0)}</div>
+                        <div class="overflow-hidden">
+                            <div class="font-bold truncate text-sm">${user.name}</div>
+                            <div class="text-xs text-slate-400">${user.empCode}</div>
                         </div>
-                        <button onclick="window.logout()" class="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-red-600 py-2 rounded text-sm transition-colors">
-                            <i data-lucide="log-out" width="16"></i> ${t('logout')}
+                    </div>
+
+                    <nav class="flex-1 overflow-y-auto py-4 space-y-1">
+                        ${navItem('dashboard', 'layout-dashboard', 'Tổng quan (Dashboard)')}
+                        ${navItem('tasks', 'clipboard-list', 'Quản lý Giao việc')}
+                        ${navItem('reports', 'bar-chart-2', 'Báo cáo Thống kê')}
+                        ${isAdmin ? navItem('users', 'users', 'Quản lý Nhân sự') : ''}
+                        ${navItem('settings', 'settings', 'Cài đặt Hệ thống')}
+                    </nav>
+
+                    <div class="p-4 bg-slate-900 border-t border-slate-700">
+                        <button onclick="logout()" class="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-white hover:bg-red-600/20 py-2 rounded transition">
+                            <i data-lucide="log-out" width="18"></i> Đăng xuất
                         </button>
                     </div>
                 </aside>
-                <main class="flex-1 bg-gray-100 overflow-y-auto p-8 relative" id="main-content">
-                    <!-- Dynamic Content -->
+
+                <!-- Main Content -->
+                <main class="flex-1 flex flex-col overflow-hidden bg-slate-100">
+                    <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10">
+                        <h2 class="text-xl font-bold text-slate-700" id="pageTitle">Tổng quan</h2>
+                        <div class="flex items-center gap-4">
+                            <span class="text-xs font-bold px-3 py-1 bg-blue-100 text-blue-700 rounded-full">${user.unit || 'AMATA'}</span>
+                            <span class="text-xs font-bold px-3 py-1 ${isAdmin ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'} rounded-full">${user.role}</span>
+                        </div>
+                    </header>
+                    <div class="flex-1 overflow-auto p-6" id="content">
+                        <!-- Content Area -->
+                    </div>
                 </main>
             `;
             
-            renderPageContent();
-            renderIcons();
+            lucide.createIcons();
+            navigate('dashboard');
         };
 
-        const renderPageContent = () => {
-            const container = $('#main-content');
+        const navItem = (id, icon, label) => `
+            <button onclick="navigate('${id}')" id="nav-${id}" class="sidebar-link w-full flex items-center gap-3 px-6 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-sm font-medium">
+                <i data-lucide="${icon}" width="18"></i> ${label}
+            </button>
+        `;
+
+        const navigate = (pageId) => {
+            STATE.activePage = pageId;
+            document.querySelectorAll('.sidebar-link').forEach(el => el.classList.remove('active'));
+            const activeBtn = document.getElementById(`nav-${pageId}`);
+            if(activeBtn) activeBtn.classList.add('active');
+            
+            const titles = {
+                dashboard: 'Dashboard Tổng quan',
+                tasks: 'Quản lý Công việc',
+                reports: 'Báo cáo & Xuất dữ liệu',
+                users: 'Quản trị Nhân sự',
+                settings: 'Thiết lập Tài khoản'
+            };
+            $('#pageTitle').innerText = titles[pageId];
+            
+            renderContent(pageId);
+        };
+
+        const renderContent = (pageId) => {
+            const container = $('#content');
             container.innerHTML = '';
             
-            switch(state.activePage) {
+            switch(pageId) {
                 case 'dashboard': renderDashboard(container); break;
                 case 'tasks': renderTasks(container); break;
                 case 'reports': renderReports(container); break;
                 case 'users': renderUsers(container); break;
                 case 'settings': renderSettings(container); break;
-                default: renderDashboard(container);
             }
-            renderIcons();
+            lucide.createIcons();
         };
 
-        // --- DASHBOARD ---
-        const renderDashboard = (container) => {
-            // Logic: Show stat cards for each employee
-            const usersToShow = state.currentUser.role === 'ADMIN' ? state.users.filter(u => u.role === 'STAFF') : [state.currentUser];
-            
-            let html = `
-                <h2 class="text-2xl font-bold mb-6 text-gray-800">${t('dashboard')} - Tổng quan tiến độ nhân sự</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            `;
+        // ==========================================
+        // 5. FEATURE MODULES
+        // ==========================================
 
-            if (usersToShow.length === 0) html += `<p class="text-gray-500">Không có nhân sự nào.</p>`;
+        /* --- DASHBOARD --- */
+        const renderDashboard = (el) => {
+            // Calculate Stats
+            const tasks = STATE.tasks;
+            const stats = {
+                total: tasks.length,
+                completed: tasks.filter(t => t.status === 'COMPLETED').length,
+                processing: tasks.filter(t => t.status === 'IN_PROGRESS' || t.status === 'TODO').length,
+                overdue: tasks.filter(t => getTaskStatus(t) === 'OVERDUE').length,
+                dueSoon: tasks.filter(t => {
+                    if (t.status === 'COMPLETED') return false;
+                    const dead = new Date(t.deadline);
+                    const now = new Date();
+                    const diff = (dead - now) / (1000 * 60 * 60 * 24);
+                    return diff >= 0 && diff <= 3; 
+                }).length
+            };
 
-            usersToShow.forEach(u => {
-                const uTasks = state.tasks.filter(t => t.assignedTo === u.id);
-                const total = uTasks.length;
-                const completed = uTasks.filter(t => t.status === 'COMPLETED').length;
-                const overdue = uTasks.filter(t => t.status !== 'COMPLETED' && new Date(t.deadline) < new Date()).length;
-                const rate = total ? Math.round((completed/total)*100) : 0;
-                
-                html += `
-                    <div class="bg-white rounded-xl shadow border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
-                        <div class="p-4 bg-gray-50 border-b flex justify-between items-center">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-lg">
-                                    ${u.name.charAt(0)}
-                                </div>
-                                <div>
-                                    <h3 class="font-bold text-gray-800">${u.name}</h3>
-                                    <p class="text-xs text-gray-500">${u.email}</p>
-                                </div>
-                            </div>
-                            <div class="text-right">
-                                <div class="text-2xl font-bold ${rate >= 80 ? 'text-green-600' : rate >= 50 ? 'text-yellow-600' : 'text-red-600'}">${rate}%</div>
-                                <div class="text-xs text-gray-400">Hoàn thành</div>
-                            </div>
-                        </div>
-                        <div class="p-4 grid grid-cols-3 gap-2 text-center">
-                            <div class="bg-gray-50 p-2 rounded">
-                                <div class="text-lg font-bold text-gray-700">${total}</div>
-                                <div class="text-xs text-gray-500">Tổng</div>
-                            </div>
-                            <div class="bg-green-50 p-2 rounded">
-                                <div class="text-lg font-bold text-green-700">${completed}</div>
-                                <div class="text-xs text-green-600">Xong</div>
-                            </div>
-                            <div class="bg-red-50 p-2 rounded">
-                                <div class="text-lg font-bold text-red-700">${overdue}</div>
-                                <div class="text-xs text-red-600">Quá hạn</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
+            // Calculate Staff Stats
+            const staffStats = STATE.users.filter(u => u.role === 'STAFF').map(u => {
+                const myTasks = tasks.filter(t => t.assignedTo === u.id);
+                const done = myTasks.filter(t => t.status === 'COMPLETED').length;
+                return { name: u.name, total: myTasks.length, done: done, overdue: myTasks.filter(t => getTaskStatus(t) === 'OVERDUE').length };
             });
-            
-            html += `</div>`;
-            container.innerHTML = html;
-        };
 
-        // --- TASKS ---
-        const renderTasks = (container) => {
-            const isAdmin = state.currentUser.role === 'ADMIN';
-            // Filter tasks
-            const myTasks = state.tasks.filter(t => isAdmin || t.assignedTo === state.currentUser.id);
-
-            container.innerHTML = `
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold text-gray-800">${t('tasks')}</h2>
-                    ${isAdmin ? `<button onclick="window.openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2"><i data-lucide="plus"></i> ${t('assignTask')}</button>` : ''}
+            el.innerHTML = `
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+                    ${statCard('Tổng công việc', stats.total, 'briefcase', 'text-gray-600', 'bg-white')}
+                    ${statCard('Đã hoàn thành', stats.completed, 'check-circle', 'text-green-600', 'bg-green-50')}
+                    ${statCard('Đang thực hiện', stats.processing, 'clock', 'text-blue-600', 'bg-blue-50')}
+                    ${statCard('Sắp hết hạn', stats.dueSoon, 'alert-triangle', 'text-yellow-600', 'bg-yellow-50')}
+                    ${statCard('Đã quá hạn', stats.overdue, 'alert-octagon', 'text-red-600', 'bg-red-50')}
                 </div>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    ${myTasks.map(task => {
-                        const isOverdue = new Date(task.deadline) < new Date() && task.status !== 'COMPLETED';
-                        const project = state.projects.find(p => p.id === task.projectId);
-                        const assignee = state.users.find(u => u.id === task.assignedTo);
-                        
-                        return `
-                        <div class="bg-white rounded-xl p-5 shadow-sm border-l-4 ${task.status === 'COMPLETED' ? 'border-green-500' : isOverdue ? 'border-red-500' : 'border-blue-500'} cursor-pointer hover:-translate-y-1 transition-transform relative group">
-                             ${isAdmin ? `<button onclick="window.deleteTask('${task.id}')" class="absolute top-2 right-2 p-2 text-red-400 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><i data-lucide="trash-2" width="16"></i></button>` : ''}
-                             
-                             <div class="flex justify-between items-start mb-2">
-                                <span class="text-xs px-2 py-1 rounded bg-gray-100 font-bold text-gray-600">${task.priority}</span>
-                                ${project ? `<span class="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase">${project.name}</span>` : '<span class="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded">Việc lẻ</span>'}
-                             </div>
-                             
-                             <h3 class="text-lg font-bold text-gray-800 mb-1 line-clamp-2">${task.title}</h3>
-                             <p class="text-sm text-gray-500 mb-4 line-clamp-2">${task.desc}</p>
-                             
-                             <div class="flex items-center justify-between text-sm text-gray-600 mt-4 pt-3 border-t">
-                                <div class="flex items-center gap-1 ${isOverdue ? 'text-red-600 font-bold' : ''}">
-                                    <i data-lucide="calendar" width="14"></i> ${formatDate(task.deadline)}
-                                </div>
-                                <div class="flex items-center gap-1" title="${assignee?.name}">
-                                    <div class="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold">${assignee?.name.charAt(0)}</div>
-                                </div>
-                             </div>
-                             
-                             <!-- Quick Status Update for Staff -->
-                             <div class="mt-3">
-                                <div class="w-full bg-gray-200 rounded-full h-1.5">
-                                    <div class="bg-blue-600 h-1.5 rounded-full" style="width: ${task.progress}%"></div>
-                                </div>
-                             </div>
-                        </div>
-                        `;
-                    }).join('')}
-                    ${myTasks.length === 0 ? '<p class="text-gray-500 col-span-full text-center py-10">Không có công việc nào.</p>' : ''}
+
+                <!-- Staff Table -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="font-bold text-gray-700 mb-4 border-l-4 border-blue-600 pl-3">Tiến độ từng nhân sự</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full amt-table text-left">
+                            <thead>
+                                <tr>
+                                    <th>Nhân viên</th>
+                                    <th class="text-center">Tổng việc được giao</th>
+                                    <th class="text-center">Đã hoàn thành</th>
+                                    <th class="text-center">Tỷ lệ</th>
+                                    <th class="text-center">Đang nợ (Quá hạn)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${staffStats.map(s => `
+                                    <tr>
+                                        <td class="font-medium text-slate-700">${s.name}</td>
+                                        <td class="text-center font-bold">${s.total}</td>
+                                        <td class="text-center text-green-600 font-bold">${s.done}</td>
+                                        <td class="text-center">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <div class="w-16 bg-gray-200 rounded-full h-1.5">
+                                                    <div class="bg-blue-600 h-1.5 rounded-full" style="width: ${s.total ? (s.done/s.total)*100 : 0}%"></div>
+                                                </div>
+                                                <span class="text-xs">${s.total ? Math.round((s.done/s.total)*100) : 0}%</span>
+                                            </div>
+                                        </td>
+                                        <td class="text-center text-red-600 font-bold">${s.overdue}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             `;
         };
 
-        // --- USERS ---
-        const renderUsers = (container) => {
-            // Additional check: If not admin, do not render (double safety)
-            if (state.currentUser.role !== 'ADMIN') {
-                container.innerHTML = '<div class="p-8 text-center text-red-500">Bạn không có quyền truy cập mục này.</div>';
-                return;
-            }
-
-            container.innerHTML = `
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold text-gray-800">${t('users')}</h2>
-                    <button onclick="window.openUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center gap-2"><i data-lucide="plus"></i> Thêm nhân sự</button>
+        const statCard = (title, count, icon, colorClass, bgClass) => `
+            <div class="${bgClass} rounded-lg p-4 shadow-sm border border-gray-100 flex items-center justify-between">
+                <div>
+                    <p class="text-xs text-gray-500 font-bold uppercase mb-1">${title}</p>
+                    <p class="text-2xl font-bold ${colorClass}">${count}</p>
                 </div>
-                <div class="bg-white rounded-xl shadow overflow-hidden">
-                    <table class="w-full text-left border-collapse">
-                        <thead class="bg-gray-50 text-gray-500 text-sm uppercase">
+                <div class="p-3 rounded-full bg-white/50 ${colorClass}">
+                    <i data-lucide="${icon}"></i>
+                </div>
+            </div>
+        `;
+
+        /* --- TASK MANAGEMENT --- */
+        const renderTasks = (el) => {
+            const isAdmin = STATE.currentUser.role === 'ADMIN';
+            const tasks = STATE.tasks.filter(t => isAdmin || t.assignedTo === STATE.currentUser.id);
+            
+            el.innerHTML = `
+                <div class="flex justify-between mb-4">
+                    <div class="flex gap-2">
+                        <input type="text" placeholder="Tìm kiếm công việc..." class="border p-2 rounded text-sm w-64" onkeyup="filterTasks(this.value)">
+                    </div>
+                    ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2"><i data-lucide="plus"></i> Giao việc mới</button>` : ''}
+                </div>
+
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <table class="w-full amt-table text-left" id="taskTable">
+                        <thead>
                             <tr>
-                                <th class="px-6 py-3">Họ tên</th>
-                                <th class="px-6 py-3">Username</th>
-                                <th class="px-6 py-3">Email</th>
-                                <th class="px-6 py-3">Vai trò</th>
-                                <th class="px-6 py-3 text-right">Thao tác</th>
+                                <th>Loại</th>
+                                <th>Tiêu đề / Dự án</th>
+                                <th>Người làm</th>
+                                <th>Ngày giao</th>
+                                <th>Hạn chót</th>
+                                <th>Trạng thái</th>
+                                <th class="text-center">Thao tác</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            ${state.users.map(u => {
-                                // PERMISSION LOGIC:
-                                // 1. Current user must be ADMIN
-                                // 2. Target user must NOT be ADMIN (Prevent deleting other admins)
-                                // 3. Target user cannot be self (already covered by condition 2 if self is admin, but explicit is better)
-                                const canDelete = state.currentUser.role === 'ADMIN' && u.role !== 'ADMIN';
-
+                        <tbody>
+                            ${tasks.map(t => {
+                                const st = CONSTANTS.STATUS[getTaskStatus(t)];
+                                const assignee = STATE.users.find(u => u.id === t.assignedTo)?.name || 'N/A';
+                                const pj = t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : 'Việc lẻ';
+                                
                                 return `
-                                <tr class="hover:bg-gray-50">
-                                    <td class="px-6 py-4 font-medium">${u.name}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-600">${u.username}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-600">${u.email}</td>
-                                    <td class="px-6 py-4"><span class="px-2 py-1 rounded text-xs font-bold ${u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}">${u.role}</span></td>
-                                    <td class="px-6 py-4 text-right">
-                                        ${canDelete ? `<button onclick="window.deleteUser('${u.id}')" class="text-red-500 hover:bg-red-100 p-2 rounded" title="Xóa nhân sự"><i data-lucide="trash-2" width="16"></i></button>` : ''}
+                                <tr>
+                                    <td><span class="text-[10px] uppercase font-bold px-2 py-1 rounded border ${t.projectId ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-600 border-gray-100'}">${t.projectId ? 'Dự án' : 'Lẻ'}</span></td>
+                                    <td>
+                                        <div class="font-bold text-slate-700 hover:text-blue-600 cursor-pointer" onclick="viewTask('${t.id}')">${t.title}</div>
+                                        <div class="text-xs text-gray-500">${pj}</div>
+                                    </td>
+                                    <td>${assignee}</td>
+                                    <td>${t.startDate}</td>
+                                    <td>
+                                        <span class="${getTaskStatus(t)==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline}</span>
+                                    </td>
+                                    <td><span class="text-xs font-bold px-2 py-1 rounded ${st.color}">${st.label}</span></td>
+                                    <td class="text-center">
+                                        <button onclick="viewTask('${t.id}')" class="text-blue-600 hover:bg-blue-50 p-1 rounded" title="Xem"><i data-lucide="eye" width="16"></i></button>
+                                        ${isAdmin ? `
+                                            <button onclick="editTask('${t.id}')" class="text-amber-600 hover:bg-amber-50 p-1 rounded" title="Sửa"><i data-lucide="edit-3" width="16"></i></button>
+                                            <button onclick="deleteTask('${t.id}')" class="text-red-600 hover:bg-red-50 p-1 rounded" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>
+                                        ` : ''}
                                     </td>
                                 </tr>
-                                `;
-                            }).join('')}
+                            `}).join('')}
                         </tbody>
                     </table>
                 </div>
             `;
         };
 
-        // --- SETTINGS ---
-        const renderSettings = (container) => {
-            container.innerHTML = `
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold text-gray-800">${t('settings')}</h2>
+        /* --- USERS --- */
+        const renderUsers = (el) => {
+            if (STATE.currentUser.role !== 'ADMIN') return el.innerHTML = '<p class="text-red-500">Truy cập bị từ chối</p>';
+            
+            el.innerHTML = `
+                 <div class="flex justify-end mb-4">
+                    <button onclick="openUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2"><i data-lucide="user-plus"></i> Thêm Nhân sự mới</button>
                 </div>
-                <div class="max-w-2xl bg-white rounded-xl shadow p-6">
-                    <form id="settingsForm" class="space-y-6">
-                        <!-- Language -->
-                        <div>
-                            <h3 class="text-lg font-bold mb-4 border-b pb-2">Ngôn ngữ / Language</h3>
-                            <div class="flex gap-4">
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="lang" value="vi" ${state.lang === 'vi' ? 'checked' : ''}> Tiếng Việt
-                                </label>
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="lang" value="en" ${state.lang === 'en' ? 'checked' : ''}> English
-                                </label>
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <table class="w-full amt-table text-left">
+                        <thead>
+                            <tr>
+                                <th>Mã NV</th>
+                                <th>Họ tên</th>
+                                <th>Username</th>
+                                <th>Đơn vị</th>
+                                <th>Vai trò</th>
+                                <th class="text-center">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${STATE.users.map(u => `
+                                <tr>
+                                    <td class="font-mono text-xs">${u.empCode}</td>
+                                    <td class="font-bold">${u.name}</td>
+                                    <td>${u.username}</td>
+                                    <td>${u.unit || '-'}</td>
+                                    <td><span class="px-2 py-0.5 rounded text-xs font-bold ${u.role==='ADMIN'?'bg-purple-100 text-purple-600':'bg-green-100 text-green-600'}">${u.role}</span></td>
+                                    <td class="text-center">
+                                        <button onclick="resetPass('${u.id}')" class="text-amber-600 p-1 hover:bg-amber-50" title="Reset Password"><i data-lucide="key" width="16"></i></button>
+                                        ${u.role !== 'ADMIN' ? `<button onclick="deleteUser('${u.id}')" class="text-red-600 p-1 hover:bg-red-50" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>` : ''}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        };
+
+        /* --- REPORTS --- */
+        const renderReports = (el) => {
+            const data = STATE.tasks.map(t => {
+                const u = STATE.users.find(x => x.id === t.assignedTo);
+                return {
+                    "Mã việc": t.id,
+                    "Dự án": t.projectId ? (STATE.projects.find(p=>p.id===t.projectId)?.name) : "Việc lẻ",
+                    "Đầu việc": t.title,
+                    "Người thực hiện": u ? u.name : "N/A",
+                    "Ngày giao": t.startDate,
+                    "Hạn chót": t.deadline,
+                    "Trạng thái": CONSTANTS.STATUS[getTaskStatus(t)].label
+                };
+            });
+
+            el.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-white p-6 rounded shadow flex flex-col items-center justify-center text-center">
+                        <i data-lucide="file-spreadsheet" class="text-green-600 w-12 h-12 mb-3"></i>
+                        <h3 class="font-bold text-lg mb-2">Báo cáo chi tiết Excel</h3>
+                        <p class="text-sm text-gray-500 mb-4">Xuất toàn bộ danh sách công việc và trạng thái chi tiết ra file Excel.</p>
+                        <button onclick='downloadExcel(${JSON.stringify(data)})' class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700">Tải về (.xlsx)</button>
+                    </div>
+                     <div class="bg-white p-6 rounded shadow flex flex-col items-center justify-center text-center">
+                        <i data-lucide="pie-chart" class="text-blue-600 w-12 h-12 mb-3"></i>
+                        <h3 class="font-bold text-lg mb-2">Báo cáo Tổng hợp</h3>
+                        <p class="text-sm text-gray-500 mb-4">Xem thống kê hiệu suất làm việc của toàn bộ hệ thống.</p>
+                        <button class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Xem ngay</button>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded shadow p-4">
+                    <h3 class="font-bold mb-4">Xem nhanh danh sách</h3>
+                    <div class="overflow-auto max-h-96">
+                        <table class="w-full amt-table text-left">
+                            <thead class="sticky top-0 z-10 shadow-sm">
+                                <tr><th>Đầu việc</th><th>Người làm</th><th>Trạng thái</th></tr>
+                            </thead>
+                            <tbody>
+                                ${data.map(r => `<tr><td>${r["Đầu việc"]}</td><td>${r["Người thực hiện"]}</td><td>${r["Trạng thái"]}</td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        };
+
+        /* --- SETTINGS --- */
+        const renderSettings = (el) => {
+            const u = STATE.currentUser;
+            el.innerHTML = `
+                <div class="max-w-2xl bg-white rounded shadow p-8 mx-auto">
+                    <h3 class="text-lg font-bold border-b pb-4 mb-6">Thông tin cá nhân</h3>
+                    <form id="profileForm" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Họ và tên</label>
+                                <input type="text" id="pName" class="w-full border p-2 rounded" value="${u.name}" ${u.role!=='ADMIN'?'disabled':''}>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Số điện thoại</label>
+                                <input type="text" id="pPhone" class="w-full border p-2 rounded" value="${u.phone||''}">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Email</label>
+                                <input type="email" id="pEmail" class="w-full border p-2 rounded" value="${u.email||''}">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Đơn vị / Phòng ban</label>
+                                <input type="text" id="pUnit" class="w-full border p-2 rounded" value="${u.unit||''}">
                             </div>
                         </div>
-
-                        <!-- Email Config -->
-                        <div>
-                            <h3 class="text-lg font-bold mb-4 border-b pb-2">Cấu hình Email (SMTP)</h3>
-                            <p class="text-xs text-gray-500 mb-4">Thông tin này được dùng để gửi thông báo tự động khi giao việc.</p>
-                            
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-sm font-medium mb-1">SMTP Host</label>
-                                    <input type="text" id="smtpHost" class="w-full border p-2 rounded" value="${state.settings.smtpHost || ''}">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium mb-1">Port</label>
-                                    <input type="text" id="smtpPort" class="w-full border p-2 rounded" value="${state.settings.smtpPort || ''}">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium mb-1">Email gửi</label>
-                                    <input type="email" id="emailUser" class="w-full border p-2 rounded" value="${state.settings.emailUser || ''}">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium mb-1">Mật khẩu ứng dụng</label>
-                                    <input type="password" id="emailPass" class="w-full border p-2 rounded" value="${state.settings.emailPass || ''}">
-                                </div>
-                            </div>
+                        <div class="flex justify-end pt-4">
+                            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded font-bold">Lưu thay đổi</button>
                         </div>
+                    </form>
 
-                        <div class="pt-4 border-t flex justify-end">
-                            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Lưu Cấu Hình</button>
+                    <h3 class="text-lg font-bold border-b pb-4 mb-6 mt-10">Đổi mật khẩu</h3>
+                    <form id="passForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Mật khẩu mới</label>
+                            <input type="password" id="newPass" class="w-full border p-2 rounded">
+                        </div>
+                        <div class="flex justify-end pt-4">
+                            <button type="submit" class="bg-gray-800 text-white px-6 py-2 rounded font-bold">Cập nhật Mật khẩu</button>
                         </div>
                     </form>
                 </div>
             `;
 
-            $('#settingsForm').onsubmit = (e) => {
+            $('#profileForm').onsubmit = async (e) => {
                 e.preventDefault();
-                // Save Lang
-                const newLang = document.querySelector('input[name="lang"]:checked').value;
-                state.lang = newLang;
-                
-                // Save Settings
-                state.settings = {
-                    smtpHost: $('#smtpHost').value,
-                    smtpPort: $('#smtpPort').value,
-                    emailUser: $('#emailUser').value,
-                    emailPass: $('#emailPass').value
-                };
+                u.name = $('#pName').value;
+                u.phone = $('#pPhone').value;
+                u.email = $('#pEmail').value;
+                u.unit = $('#pUnit').value;
+                await DB.save();
+                Swal.fire('Thành công', 'Thông tin đã được cập nhật', 'success');
+                renderApp();
+            };
 
-                saveData();
-                alert("Đã lưu cấu hình thành công!");
-                renderApp(); // Reload to apply changes
+            $('#passForm').onsubmit = async (e) => {
+                e.preventDefault();
+                const newP = $('#newPass').value;
+                if(newP.length < 4) return Swal.fire('Lỗi', 'Mật khẩu quá ngắn', 'warning');
+                u.password = newP;
+                await DB.save();
+                Swal.fire('Thành công', 'Mật khẩu đã được thay đổi', 'success');
             };
         };
 
-        // --- REPORTS ---
-        const renderReports = (container) => {
-            container.innerHTML = `
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold text-gray-800">${t('reports')}</h2>
-                    <button onclick="window.exportExcel()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2"><i data-lucide="download"></i> ${t('exportExcel')}</button>
-                </div>
-                
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                    <div class="bg-white p-6 rounded-xl shadow h-80">
-                         <h3 class="font-bold text-gray-700 mb-4">Thống kê theo trạng thái</h3>
-                         <canvas id="statusChart"></canvas>
-                    </div>
-                     <div class="bg-white p-6 rounded-xl shadow h-80">
-                         <h3 class="font-bold text-gray-700 mb-4">Hiệu suất nhân viên (Hoàn thành)</h3>
-                         <canvas id="performanceChart"></canvas>
-                    </div>
-                </div>
-            `;
-            
-            // Render Charts after DOM update
-            setTimeout(() => {
-                const statusCounts = {
-                    TODO: state.tasks.filter(t=>t.status==='TODO').length,
-                    IN_PROGRESS: state.tasks.filter(t=>t.status==='IN_PROGRESS').length,
-                    COMPLETED: state.tasks.filter(t=>t.status==='COMPLETED').length
-                };
-                
-                new Chart($('#statusChart'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['Mới tạo', 'Đang làm', 'Hoàn thành'],
-                        datasets: [{ data: [statusCounts.TODO, statusCounts.IN_PROGRESS, statusCounts.COMPLETED], backgroundColor: ['#94a3b8', '#3b82f6', '#22c55e'] }]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
-
-                const staff = state.users.filter(u => u.role === 'STAFF');
-                new Chart($('#performanceChart'), {
-                    type: 'bar',
-                    data: {
-                        labels: staff.map(u => u.name),
-                        datasets: [{ 
-                            label: 'Số việc hoàn thành',
-                            data: staff.map(u => state.tasks.filter(t => t.assignedTo === u.id && t.status === 'COMPLETED').length),
-                            backgroundColor: '#3b82f6'
-                        }]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
-            }, 0);
-        };
-
         // ==========================================
-        // 4. MODALS & ACTIONS
+        // 6. ACTIONS & MODALS
         // ==========================================
 
-        const createModal = (contentHtml) => {
-            const el = document.createElement('div');
-            el.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
-            el.innerHTML = `
-                <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden slide-in max-h-[90vh] flex flex-col">
-                    <div class="p-4 border-b flex justify-between items-center bg-gray-50">
-                        <h3 class="font-bold text-lg">WorkFlow Pro</h3>
-                        <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-black"><i data-lucide="x"></i></button>
-                    </div>
-                    <div class="p-6 overflow-y-auto flex-1">
-                        ${contentHtml}
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(el);
-            renderIcons();
-            return el;
-        };
-
-        window.openTaskModal = () => {
-            const projects = state.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-            const staff = state.users.filter(u => u.role === 'STAFF').map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+        window.openTaskModal = (editId = null) => {
+            const task = editId ? STATE.tasks.find(t => t.id === editId) : null;
+            const staffOpts = STATE.users.filter(u=>u.role==='STAFF').map(u=>`<option value="${u.id}" ${task?.assignedTo===u.id?'selected':''}>${u.name}</option>`).join('');
             
-            const html = `
-                <form id="taskForm" class="space-y-4">
-                    <div class="grid grid-cols-2 gap-4">
-                        <div class="col-span-2">
-                             <label class="block text-sm font-medium mb-1">Loại công việc</label>
-                             <div class="flex gap-4">
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="mode" value="project" checked onchange="document.getElementById('pjSelect').classList.remove('hidden')"> Dự án
-                                </label>
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" name="mode" value="adhoc" onchange="document.getElementById('pjSelect').classList.add('hidden')"> Việc lẻ
-                                </label>
-                             </div>
+            Swal.fire({
+                title: editId ? 'Sửa công việc' : 'Giao việc mới',
+                html: `
+                    <div class="text-left space-y-3">
+                        <div>
+                            <label class="block text-xs font-bold mb-1">Tiêu đề việc</label>
+                            <input id="swal-title" class="swal2-input m-0 w-full" placeholder="Nhập tên đầu việc" value="${task?.title||''}">
                         </div>
-                        <div id="pjSelect" class="col-span-2">
-                            <label class="block text-sm font-medium mb-1">Chọn Dự án</label>
-                            <div class="flex gap-2">
-                                <select id="projectId" class="w-full border p-2 rounded text-sm">${projects}</select>
-                                <button type="button" onclick="window.addProjectPrompt()" class="bg-green-600 text-white px-2 rounded text-xs whitespace-nowrap">+ Tạo mới</button>
+                        <div class="grid grid-cols-2 gap-2">
+                             <div>
+                                <label class="block text-xs font-bold mb-1">Loại hình</label>
+                                <select id="swal-type" class="swal2-input m-0 w-full" onchange="this.value==='project'?document.getElementById('pj-group').classList.remove('hidden'):document.getElementById('pj-group').classList.add('hidden')">
+                                    <option value="adhoc" ${!task?.projectId?'selected':''}>Việc lẻ</option>
+                                    <option value="project" ${task?.projectId?'selected':''}>Dự án</option>
+                                </select>
+                            </div>
+                            <div id="pj-group" class="${!task?.projectId?'hidden':''}">
+                                <label class="block text-xs font-bold mb-1">Tên Dự án</label>
+                                <input id="swal-pj" class="swal2-input m-0 w-full" placeholder="Tên dự án" value="${task?.projectId ? STATE.projects.find(p=>p.id===task.projectId)?.name : ''}">
                             </div>
                         </div>
-                        <div class="col-span-2">
-                            <label class="block text-sm font-medium mb-1">Tên đầu việc</label>
-                            <div class="flex gap-2">
-                                <input type="text" id="taskTitle" class="w-full border p-2 rounded" required>
-                                <button type="button" id="aiBtn" onclick="window.askAI()" class="bg-purple-100 text-purple-700 px-3 rounded whitespace-nowrap hover:bg-purple-200 text-xs flex items-center gap-1"><i data-lucide="wand-2" width="14"></i> AI Gợi ý</button>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-bold mb-1">Ngày bắt đầu</label>
+                                <input type="date" id="swal-start" class="swal2-input m-0 w-full" value="${task?.startDate||new Date().toISOString().slice(0,10)}">
+                            </div>
+                             <div>
+                                <label class="block text-xs font-bold mb-1">Hạn hoàn thành</label>
+                                <input type="date" id="swal-end" class="swal2-input m-0 w-full" value="${task?.deadline||''}">
                             </div>
                         </div>
-                        <div class="col-span-2">
-                            <label class="block text-sm font-medium mb-1">Nội dung thực hiện</label>
-                            <textarea id="taskDesc" rows="3" class="w-full border p-2 rounded"></textarea>
-                        </div>
                         <div>
-                            <label class="block text-sm font-medium mb-1">Ngày giao</label>
-                            <input type="date" id="startDate" class="w-full border p-2 rounded" value="${new Date().toISOString().slice(0,10)}">
+                            <label class="block text-xs font-bold mb-1">Giao cho nhân sự</label>
+                            <select id="swal-assign" class="swal2-input m-0 w-full">${staffOpts}</select>
                         </div>
+                        ${editId ? `
                         <div>
-                            <label class="block text-sm font-medium mb-1">Hạn hoàn thành</label>
-                            <input type="date" id="deadline" class="w-full border p-2 rounded" required>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Người thực hiện</label>
-                            <select id="assignedTo" class="w-full border p-2 rounded" required>${staff}</select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Mức độ ưu tiên</label>
-                            <select id="priority" class="w-full border p-2 rounded">
-                                <option value="LOW">Thấp</option>
-                                <option value="MEDIUM" selected>Vừa</option>
-                                <option value="HIGH">Cao</option>
-                                <option value="URGENT">Khẩn cấp</option>
+                            <label class="block text-xs font-bold mb-1">Trạng thái</label>
+                            <select id="swal-status" class="swal2-input m-0 w-full">
+                                <option value="TODO" ${task.status==='TODO'?'selected':''}>Mới tạo</option>
+                                <option value="IN_PROGRESS" ${task.status==='IN_PROGRESS'?'selected':''}>Đang thực hiện</option>
+                                <option value="COMPLETED" ${task.status==='COMPLETED'?'selected':''}>Hoàn thành</option>
                             </select>
-                        </div>
+                        </div>` : ''}
                     </div>
-                    <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 mt-4">Giao Việc</button>
-                </form>
-            `;
-            
-            const modal = createModal(html);
-            $('#taskForm').onsubmit = (e) => {
-                e.preventDefault();
-                const mode = document.querySelector('input[name="mode"]:checked').value;
-                const newTask = {
-                    id: 't' + Date.now(),
-                    title: $('#taskTitle').value,
-                    desc: $('#taskDesc').value,
-                    projectId: mode === 'project' ? $('#projectId').value : '',
-                    startDate: $('#startDate').value,
-                    deadline: $('#deadline').value,
-                    assignedTo: $('#assignedTo').value,
-                    priority: $('#priority').value,
-                    status: 'TODO',
-                    progress: 0,
-                    createdAt: new Date().toISOString()
-                };
-                state.tasks.push(newTask);
-                saveData();
-                modal.remove();
-                renderPageContent(); // Refresh
-                alert("Đã giao việc thành công!");
-            };
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Lưu lại',
+                preConfirm: () => {
+                    return {
+                        title: $('#swal-title').value,
+                        type: $('#swal-type').value,
+                        pjName: $('#swal-pj').value,
+                        start: $('#swal-start').value,
+                        end: $('#swal-end').value,
+                        assign: $('#swal-assign').value,
+                        status: editId ? $('#swal-status').value : 'TODO'
+                    }
+                }
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    const d = result.value;
+                    if (!d.title || !d.end) return Swal.fire('Lỗi', 'Thiếu thông tin bắt buộc', 'error');
+                    
+                    let pjId = '';
+                    if (d.type === 'project' && d.pjName) {
+                        const existPj = STATE.projects.find(p => p.name === d.pjName);
+                        if (existPj) pjId = existPj.id;
+                        else {
+                            pjId = uuid();
+                            STATE.projects.push({ id: pjId, name: d.pjName });
+                        }
+                    }
+
+                    if (editId) {
+                        Object.assign(task, {
+                            title: d.title, projectId: pjId, startDate: d.start, deadline: d.end, assignedTo: d.assign, status: d.status
+                        });
+                    } else {
+                        STATE.tasks.push({
+                            id: uuid(), title: d.title, projectId: pjId, startDate: d.start, deadline: d.end, assignedTo: d.assign, status: 'TODO', createdAt: new Date().toISOString()
+                        });
+                    }
+                    await DB.save();
+                    renderTasks($('#content'));
+                    Swal.fire('Thành công', 'Đã lưu công việc', 'success');
+                }
+            });
         };
 
         window.openUserModal = () => {
-            const html = `
-                <form id="userForm" class="space-y-4">
-                    <input type="text" id="uName" placeholder="Họ tên" class="w-full border p-2 rounded" required>
-                    <input type="email" id="uEmail" placeholder="Email" class="w-full border p-2 rounded" required>
-                    <input type="text" id="uUser" placeholder="Tên đăng nhập" class="w-full border p-2 rounded" required>
-                    <input type="password" id="uPass" placeholder="Mật khẩu" class="w-full border p-2 rounded" required>
-                    <select id="uRole" class="w-full border p-2 rounded">
+            Swal.fire({
+                title: 'Thêm nhân sự mới',
+                html: `
+                    <input id="u-name" class="swal2-input" placeholder="Họ và tên">
+                    <input id="u-user" class="swal2-input" placeholder="Tên đăng nhập">
+                    <input id="u-pass" class="swal2-input" placeholder="Mật khẩu khởi tạo" type="password">
+                    <select id="u-role" class="swal2-input">
                         <option value="STAFF">Nhân viên</option>
-                        <option value="ADMIN">Quản trị</option>
+                        <option value="ADMIN">Quản trị viên</option>
                     </select>
-                    <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded font-bold">Thêm Nhân Sự</button>
-                </form>
-            `;
-            const modal = createModal(html);
-            $('#userForm').onsubmit = (e) => {
-                e.preventDefault();
-                if(state.users.some(u => u.username === $('#uUser').value)) return alert("Username đã tồn tại!");
-                
-                const newUser = {
-                    id: 'u' + Date.now(),
-                    name: $('#uName').value,
-                    email: $('#uEmail').value,
-                    username: $('#uUser').value,
-                    password: $('#uPass').value,
-                    role: $('#uRole').value,
-                    isFirst: true
-                };
-                state.users.push(newUser);
-                saveData();
-                modal.remove();
-                renderPageContent();
-            };
-        };
-
-        window.addProjectPrompt = () => {
-            const name = prompt("Nhập tên dự án mới:");
-            if(name) {
-                const newP = { id: 'p'+Date.now(), name, desc: '' };
-                state.projects.push(newP);
-                saveData();
-                // Refresh Select
-                const sel = $('#projectId');
-                if(sel) {
-                    const opt = document.createElement('option');
-                    opt.value = newP.id;
-                    opt.text = newP.name;
-                    opt.selected = true;
-                    sel.appendChild(opt);
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Tạo nhân sự',
+                preConfirm: () => {
+                    return {
+                        name: $('#u-name').value,
+                        user: $('#u-user').value,
+                        pass: $('#u-pass').value,
+                        role: $('#u-role').value
+                    }
                 }
-            }
+            }).then(async (res) => {
+                if (res.isConfirmed) {
+                    const d = res.value;
+                    if (!d.name || !d.user || !d.pass) return Swal.fire('Lỗi', 'Nhập thiếu thông tin', 'error');
+                    
+                    const newUser = {
+                        id: uuid(),
+                        empCode: generateEmpCode(),
+                        name: d.name,
+                        username: d.user,
+                        password: d.pass,
+                        role: d.role,
+                        isFirst: true,
+                        unit: 'AMATA'
+                    };
+                    STATE.users.push(newUser);
+                    await DB.save();
+                    renderUsers($('#content'));
+                    Swal.fire('Thành công', `Đã tạo nhân sự mã: ${newUser.empCode}`, 'success');
+                }
+            })
         };
 
+        window.viewTask = (id) => {
+            const t = STATE.tasks.find(x => x.id === id);
+            const u = STATE.users.find(x => x.id === t.assignedTo);
+            const isMyTask = STATE.currentUser.id === t.assignedTo;
+            
+            Swal.fire({
+                title: t.title,
+                html: `
+                    <div class="text-left text-sm space-y-2">
+                        <p><strong>Dự án:</strong> ${t.projectId ? STATE.projects.find(p=>p.id===t.projectId).name : 'Việc lẻ'}</p>
+                        <p><strong>Người làm:</strong> ${u ? u.name : 'N/A'}</p>
+                        <p><strong>Hạn chót:</strong> ${t.deadline}</p>
+                        <p><strong>Trạng thái:</strong> ${CONSTANTS.STATUS[t.status].label}</p>
+                    </div>
+                `,
+                showDenyButton: isMyTask && t.status !== 'COMPLETED',
+                denyButtonText: 'Báo cáo Hoàn thành',
+                denyButtonColor: '#16a34a'
+            }).then(async (res) => {
+                if (res.isDenied) {
+                    t.status = 'COMPLETED';
+                    await DB.save();
+                    renderTasks($('#content'));
+                    Swal.fire('Tuyệt vời', 'Đã cập nhật trạng thái hoàn thành!', 'success');
+                }
+            });
+        };
+
+        window.editTask = (id) => openTaskModal(id);
+        
         window.deleteTask = (id) => {
-            if(confirm("Bạn có chắc chắn muốn xóa công việc này không?")) {
-                state.tasks = state.tasks.filter(t => t.id !== id);
-                saveData();
-                renderPageContent();
-            }
+            Swal.fire({title: 'Xóa việc này?', icon: 'warning', showCancelButton: true}).then(async (r) => {
+                if(r.isConfirmed) {
+                    STATE.tasks = STATE.tasks.filter(t => t.id !== id);
+                    await DB.save();
+                    renderTasks($('#content'));
+                }
+            })
         };
 
         window.deleteUser = (id) => {
-            if(confirm("Xóa nhân sự này sẽ không thể khôi phục. Tiếp tục?")) {
-                state.users = state.users.filter(u => u.id !== id);
-                saveData();
-                renderPageContent();
-            }
+            Swal.fire({title: 'Xóa nhân sự này?', text: 'Hành động không thể phục hồi', icon: 'warning', showCancelButton: true}).then(async (r) => {
+                if(r.isConfirmed) {
+                    STATE.users = STATE.users.filter(u => u.id !== id);
+                    await DB.save();
+                    renderUsers($('#content'));
+                }
+            })
         };
 
-        // ==========================================
-        // 5. GLOBAL HANDLERS & INIT
-        // ==========================================
+        window.resetPass = (id) => {
+             Swal.fire({title: 'Reset mật khẩu?', text: 'Mật khẩu sẽ về mặc định: 123456', icon: 'warning', showCancelButton: true}).then(async (r) => {
+                if(r.isConfirmed) {
+                    const u = STATE.users.find(x => x.id === id);
+                    u.password = '123456';
+                    u.isFirst = true;
+                    await DB.save();
+                    Swal.fire('Thành công', 'Mật khẩu là: 123456', 'success');
+                }
+            })
+        };
 
-        window.nav = (pageId) => {
-            state.activePage = pageId;
-            renderApp();
+        window.downloadExcel = (data) => {
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "BaoCao");
+            XLSX.writeFile(wb, "Amata_Report.xlsx");
         };
 
         window.logout = () => {
-            if(confirm("Bạn muốn đăng xuất?")) {
-                state.currentUser = null;
-                localStorage.removeItem(KEYS.USER);
-                renderLogin();
-            }
+            Swal.fire({title: 'Bạn muốn đăng xuất?', icon: 'question', showCancelButton: true}).then((r) => {
+                if(r.isConfirmed) {
+                    STATE.currentUser = null;
+                    sessionStorage.clear();
+                    renderLogin();
+                }
+            })
         };
 
-        // Init App
-        if (state.currentUser) {
-            renderApp();
-        } else {
+        // ==========================================
+        // 7. BOOTSTRAP
+        // ==========================================
+        
+        (async function init() {
+            // Check session
             renderLogin();
-        }
+            // Try to auto-load if session exists
+            /*
+            const sessId = sessionStorage.getItem('session_user_id');
+            if(sessId) {
+                await DB.fetch();
+                const user = STATE.users.find(u => u.id === sessId);
+                if(user) {
+                    STATE.currentUser = user;
+                    renderApp();
+                }
+            }
+            */
+        })();
 
     </script>
 </body>
