@@ -81,7 +81,8 @@
             projects: [],
             activePage: 'dashboard',
             lang: 'vi',
-            refreshTimer: null
+            refreshTimer: null,
+            taskFilters: { search: '', project: '', user: '' }
         };
 
         const DB = {
@@ -205,8 +206,9 @@
                             </div>
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
-                        <div class="mt-6 text-xs text-center text-gray-400">
-                            Version 2.3 - Auto Refresh & Session Fix
+                        <div class="mt-4 flex justify-between items-center text-xs">
+                             <span class="text-gray-400">Version 2.5 - Filter Update</span>
+                             <button onclick="localStorage.removeItem('AMATA_DB'); location.reload()" class="text-red-400 hover:underline">Khôi phục dữ liệu gốc</button>
                         </div>
                     </div>
                 </div>
@@ -457,20 +459,75 @@
         /* --- TASK MANAGEMENT --- */
         const renderTasks = (el) => {
             const isAdmin = STATE.currentUser.role === 'ADMIN';
-            // Show task if Admin OR Assigned To OR Is Collaborator
-            const tasks = STATE.tasks.filter(t => {
+            const filters = STATE.taskFilters;
+
+            // --- FILTER LOGIC ---
+            // 1. Filter by Visibility (Permission)
+            let tasks = STATE.tasks.filter(t => {
                 const assignees = getAssignees(t);
                 return isAdmin || 
                 assignees.includes(STATE.currentUser.id) || 
                 (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
             });
+
+            // 2. Filter by Search Text
+            if (filters.search) {
+                const lowerK = filters.search.toLowerCase();
+                tasks = tasks.filter(t => t.title.toLowerCase().includes(lowerK));
+            }
+
+            // 3. Filter by Project
+            if (filters.project) {
+                if (filters.project === 'ADHOC') {
+                    tasks = tasks.filter(t => !t.projectId);
+                } else {
+                    tasks = tasks.filter(t => t.projectId === filters.project);
+                }
+            }
+
+            // 4. Filter by Assignee (Admin only)
+            if (isAdmin && filters.user) {
+                tasks = tasks.filter(t => {
+                    const assignees = getAssignees(t);
+                    return assignees.includes(filters.user);
+                });
+            }
             
+            // Generate Project Options
+            const projectOptions = `<option value="">-- Tất cả Dự án --</option>
+                                    <option value="ADHOC" ${filters.project==='ADHOC'?'selected':''}>Công việc Lẻ (Ad-hoc)</option>` + 
+                                    STATE.projects.map(p => `<option value="${p.id}" ${filters.project===p.id?'selected':''}>${p.name}</option>`).join('');
+
+            // Generate User Options (Admin only)
+            const userOptions = `<option value="">-- Tất cả Nhân sự --</option>` + 
+                                STATE.users.filter(u => u.role === 'STAFF').map(u => `<option value="${u.id}" ${filters.user===u.id?'selected':''}>${u.name}</option>`).join('');
+
             el.innerHTML = `
-                <div class="flex justify-between mb-4">
-                    <div class="flex gap-2">
-                        <input type="text" placeholder="Tìm kiếm công việc..." class="border p-2 rounded text-sm w-64" onkeyup="filterTasks(this.value)">
+                <div class="flex flex-col md:flex-row justify-between mb-4 gap-3">
+                    <div class="flex flex-col md:flex-row gap-2 flex-1">
+                        <!-- Search Box -->
+                        <div class="relative w-full md:w-64">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-2 text-gray-400">
+                                <i data-lucide="search" width="16"></i>
+                            </span>
+                            <input type="text" placeholder="Tìm kiếm công việc..." class="border p-2 pl-8 rounded text-sm w-full outline-none focus:ring-1 focus:ring-blue-500" value="${filters.search}" onkeyup="setTaskFilter('search', this.value)">
+                        </div>
+
+                        <!-- Project Filter -->
+                        <select class="border p-2 rounded text-sm w-full md:w-48 outline-none focus:ring-1 focus:ring-blue-500" onchange="setTaskFilter('project', this.value)">
+                            ${projectOptions}
+                        </select>
+
+                        <!-- User Filter (Admin) -->
+                        ${isAdmin ? `
+                        <select class="border p-2 rounded text-sm w-full md:w-48 outline-none focus:ring-1 focus:ring-blue-500" onchange="setTaskFilter('user', this.value)">
+                            ${userOptions}
+                        </select>
+                        ` : ''}
                     </div>
-                    ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2"><i data-lucide="plus"></i> Giao việc mới</button>` : ''}
+
+                    <!-- Add Button -->
+                    ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 whitespace-nowrap"><i data-lucide="plus"></i> Giao việc mới</button>` : ''}
                 </div>
 
                 <div class="bg-white rounded-lg shadow overflow-hidden">
@@ -488,7 +545,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            ${tasks.map(t => {
+                            ${tasks.length > 0 ? tasks.map(t => {
                                 const st = CONSTANTS.STATUS[getTaskStatus(t)];
                                 const assignees = getAssignees(t);
                                 const assigneeNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
@@ -518,7 +575,7 @@
                                         ` : ''}
                                     </td>
                                 </tr>
-                            `}).join('')}
+                            `}).join('') : `<tr><td colspan="8" class="text-center py-8 text-gray-500">Không tìm thấy công việc phù hợp</td></tr>`}
                         </tbody>
                     </table>
                 </div>
@@ -690,6 +747,11 @@
         // 6. ACTIONS & MODALS
         // ==========================================
         
+        window.setTaskFilter = (key, val) => {
+            STATE.taskFilters[key] = val;
+            renderTasks($('#content'));
+        };
+
         window.manualRefresh = async () => {
             await DB.fetch();
             renderContent(STATE.activePage);
