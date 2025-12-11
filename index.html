@@ -30,6 +30,10 @@
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+        /* Tab Styles for Reports */
+        .tab-btn { padding: 8px 16px; font-weight: bold; border-bottom: 2px solid transparent; color: #64748b; }
+        .tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
     </style>
 </head>
 <body class="h-screen flex overflow-hidden text-slate-800">
@@ -175,6 +179,14 @@
             const deadline = new Date(task.deadline).setHours(0,0,0,0);
             if (deadline < today) return 'OVERDUE';
             return task.status; // TODO or IN_PROGRESS
+        };
+
+        const isDueSoon = (task) => {
+            if (task.status === 'COMPLETED') return false;
+            const dead = new Date(task.deadline);
+            const now = new Date();
+            const diff = (dead - now) / (1000 * 60 * 60 * 24);
+            return diff >= 0 && diff <= 3;
         };
 
         const getAssignees = (task) => {
@@ -376,13 +388,7 @@
                 completed: tasks.filter(t => t.status === 'COMPLETED').length,
                 processing: tasks.filter(t => t.status === 'IN_PROGRESS' || t.status === 'TODO').length,
                 overdue: tasks.filter(t => getTaskStatus(t) === 'OVERDUE').length,
-                dueSoon: tasks.filter(t => {
-                    if (t.status === 'COMPLETED') return false;
-                    const dead = new Date(t.deadline);
-                    const now = new Date();
-                    const diff = (dead - now) / (1000 * 60 * 60 * 24);
-                    return diff >= 0 && diff <= 3; 
-                }).length
+                dueSoon: tasks.filter(t => isDueSoon(t)).length
             };
 
             // Calculate Staff Stats
@@ -657,8 +663,8 @@
                      <div class="bg-white p-6 rounded shadow flex flex-col items-center justify-center text-center">
                         <i data-lucide="pie-chart" class="text-blue-600 w-12 h-12 mb-3"></i>
                         <h3 class="font-bold text-lg mb-2">Báo cáo Tổng hợp</h3>
-                        <p class="text-sm text-gray-500 mb-4">Xem thống kê hiệu suất làm việc của toàn bộ hệ thống.</p>
-                        <button class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Xem ngay</button>
+                        <p class="text-sm text-gray-500 mb-4">Xem thống kê hiệu suất làm việc theo Nhân sự hoặc theo Dự án.</p>
+                        <button onclick="openSummaryReport()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Xem ngay</button>
                     </div>
                 </div>
                 
@@ -1234,6 +1240,101 @@
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "BaoCao");
             XLSX.writeFile(wb, "Amata_Report.xlsx");
+        };
+
+        window.openSummaryReport = () => {
+            const getStats = (taskList) => {
+                const total = taskList.length;
+                const completed = taskList.filter(t => t.status === 'COMPLETED').length;
+                const overdue = taskList.filter(t => getTaskStatus(t) === 'OVERDUE').length;
+                const dueSoon = taskList.filter(t => isDueSoon(t)).length;
+                const rate = total ? Math.round((completed/total)*100) : 0;
+                return { total, completed, rate, dueSoon, overdue };
+            };
+
+            // 1. Calculate Staff Stats
+            const staffData = STATE.users.filter(u => u.role === 'STAFF').map(u => {
+                const myTasks = STATE.tasks.filter(t => {
+                    const assignees = getAssignees(t);
+                    return assignees.includes(u.id) || (t.collaborators && t.collaborators.includes(u.id));
+                });
+                return { name: u.name, ...getStats(myTasks) };
+            });
+
+            // 2. Calculate Project Stats
+            const projectData = STATE.projects.map(p => {
+                const pjTasks = STATE.tasks.filter(t => t.projectId === p.id);
+                return { name: p.name, ...getStats(pjTasks) };
+            });
+            // Add Ad-hoc
+            const adhocTasks = STATE.tasks.filter(t => !t.projectId);
+            projectData.push({ name: 'Công việc Lẻ (Ad-hoc)', ...getStats(adhocTasks) });
+
+            const createTable = (rows, labelCol) => `
+                <table class="w-full text-sm text-left border-collapse border border-slate-200">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="border border-slate-200 p-2">STT</th>
+                            <th class="border border-slate-200 p-2">${labelCol}</th>
+                            <th class="border border-slate-200 p-2 text-center">Tổng giao</th>
+                            <th class="border border-slate-200 p-2 text-center text-green-600">Hoàn thành</th>
+                            <th class="border border-slate-200 p-2 text-center">Tỷ lệ</th>
+                            <th class="border border-slate-200 p-2 text-center text-yellow-600">Sắp hết hạn</th>
+                            <th class="border border-slate-200 p-2 text-center text-red-600">Quá hạn</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((r, i) => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="border border-slate-200 p-2 text-center">${i+1}</td>
+                                <td class="border border-slate-200 p-2 font-bold text-slate-700">${r.name}</td>
+                                <td class="border border-slate-200 p-2 text-center">${r.total}</td>
+                                <td class="border border-slate-200 p-2 text-center font-bold text-green-600">${r.completed}</td>
+                                <td class="border border-slate-200 p-2 text-center">
+                                    <span class="px-2 py-1 rounded text-xs text-white ${r.rate >= 100 ? 'bg-green-500' : r.rate >= 50 ? 'bg-blue-500' : 'bg-gray-400'}">${r.rate}%</span>
+                                </td>
+                                <td class="border border-slate-200 p-2 text-center font-bold text-yellow-600">${r.dueSoon}</td>
+                                <td class="border border-slate-200 p-2 text-center font-bold text-red-600">${r.overdue}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+            Swal.fire({
+                title: 'BÁO CÁO TỔNG HỢP',
+                width: '900px',
+                html: `
+                    <div>
+                        <div class="flex border-b mb-4">
+                            <button class="tab-btn active flex-1" onclick="switchTab('staff')">Theo Nhân sự</button>
+                            <button class="tab-btn flex-1" onclick="switchTab('project')">Theo Dự án</button>
+                        </div>
+                        <div id="tab-staff" class="overflow-auto max-h-[500px]">
+                            ${createTable(staffData, 'Tên Nhân sự')}
+                        </div>
+                        <div id="tab-project" class="hidden overflow-auto max-h-[500px]">
+                            ${createTable(projectData, 'Tên Dự án')}
+                        </div>
+                    </div>
+                `,
+                showCloseButton: true,
+                showConfirmButton: false,
+                didOpen: () => {
+                    window.switchTab = (tab) => {
+                        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                        if (tab === 'staff') {
+                            document.querySelector('.tab-btn:first-child').classList.add('active');
+                            document.getElementById('tab-staff').classList.remove('hidden');
+                            document.getElementById('tab-project').classList.add('hidden');
+                        } else {
+                            document.querySelector('.tab-btn:last-child').classList.add('active');
+                            document.getElementById('tab-staff').classList.add('hidden');
+                            document.getElementById('tab-project').classList.remove('hidden');
+                        }
+                    }
+                }
+            });
         };
 
         window.logout = () => {
