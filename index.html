@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -26,6 +25,15 @@
         .amt-table td { padding: 1rem; border-bottom: 1px solid #e2e8f0; font-size: 0.875rem; color: #334155; }
         .amt-table tr:hover { background-color: #f1f5f9; }
         
+        /* Monday.com Style Board */
+        .monday-cell { transition: all 0.2s; border-right: 1px solid #f1f5f9; }
+        .monday-status { cursor: pointer; color: white; font-weight: 500; text-align: center; height: 100%; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s; }
+        .monday-status:hover { opacity: 0.9; }
+        .monday-row { border-bottom: 1px solid #e2e8f0; background: white; transition: background 0.1s; }
+        .monday-row:hover { background-color: #f8fafc; }
+        .timeline-bar { height: 6px; border-radius: 3px; background: #e2e8f0; overflow: hidden; position: relative; }
+        .timeline-progress { height: 100%; background: #3b82f6; }
+
         /* Custom Scrollbar for modal */
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
@@ -64,10 +72,11 @@
 
         const CONSTANTS = {
             STATUS: {
-                TODO: { label: 'Mới tạo', color: 'bg-gray-100 text-gray-600' },
-                IN_PROGRESS: { label: 'Đang thực hiện', color: 'bg-blue-100 text-blue-600' },
-                COMPLETED: { label: 'Hoàn thành', color: 'bg-green-100 text-green-600' },
-                OVERDUE: { label: 'Quá hạn', color: 'bg-red-100 text-red-600' }
+                TODO: { label: 'Mới tạo', color: 'bg-gray-400', text: 'Chưa bắt đầu' }, // Monday style: Gray
+                IN_PROGRESS: { label: 'Đang thực hiện', color: 'bg-blue-500', text: 'Đang làm' }, // Monday style: Blue
+                COMPLETED: { label: 'Hoàn thành', color: 'bg-green-500', text: 'Đã xong' }, // Monday style: Green
+                OVERDUE: { label: 'Quá hạn', color: 'bg-red-500', text: 'Quá hạn' }, // Monday style: Red
+                STUCK: { label: 'Vướng mắc', color: 'bg-orange-400', text: 'Đang vướng' } // Monday style: Orange
             },
             PRIORITY: {
                 LOW: 'Thấp', MEDIUM: 'Vừa', HIGH: 'Cao', URGENT: 'Khẩn cấp'
@@ -84,6 +93,7 @@
             tasks: [],
             projects: [],
             activePage: 'dashboard',
+            activeProjectTab: null, // For Project Board
             lang: 'vi',
             refreshTimer: null,
             taskFilters: { search: '', project: '', user: '' }
@@ -175,6 +185,7 @@
 
         const getTaskStatus = (task) => {
             if (task.status === 'COMPLETED') return 'COMPLETED';
+            if (task.status === 'STUCK') return 'STUCK';
             const today = new Date().setHours(0,0,0,0);
             const deadline = new Date(task.deadline).setHours(0,0,0,0);
             if (deadline < today) return 'OVERDUE';
@@ -219,7 +230,7 @@
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
                         <div class="mt-4 flex justify-between items-center text-xs">
-                             <span class="text-gray-400">Version 2.5 - Filter Update</span>
+                             <span class="text-gray-400">Version 3.0 - Project Board</span>
                              <button onclick="localStorage.removeItem('AMATA_DB'); location.reload()" class="text-red-400 hover:underline">Khôi phục dữ liệu gốc</button>
                         </div>
                     </div>
@@ -300,6 +311,7 @@
 
                     <nav class="flex-1 overflow-y-auto py-4 space-y-1">
                         ${navItem('dashboard', 'layout-dashboard', 'Tổng quan (Dashboard)')}
+                        ${navItem('projects', 'trello', 'Quản lý Dự án')}
                         ${navItem('tasks', 'clipboard-list', 'Quản lý Giao việc')}
                         ${navItem('reports', 'bar-chart-2', 'Báo cáo Thống kê')}
                         ${isAdmin ? navItem('users', 'users', 'Quản lý Nhân sự') : ''}
@@ -352,6 +364,7 @@
             const titles = {
                 dashboard: 'Dashboard Tổng quan',
                 tasks: 'Quản lý Công việc',
+                projects: 'Dự án (Project Board)',
                 reports: 'Báo cáo & Xuất dữ liệu',
                 users: 'Quản trị Nhân sự',
                 settings: 'Thiết lập Tài khoản'
@@ -368,6 +381,7 @@
             switch(pageId) {
                 case 'dashboard': renderDashboard(container); break;
                 case 'tasks': renderTasks(container); break;
+                case 'projects': renderProjectBoard(container); break;
                 case 'reports': renderReports(container); break;
                 case 'users': renderUsers(container); break;
                 case 'settings': renderSettings(container); break;
@@ -462,6 +476,220 @@
             </div>
         `;
 
+        /* --- PROJECT BOARD (MONDAY.COM STYLE) --- */
+        const renderProjectBoard = (el) => {
+            // Default to first project if none selected
+            if (!STATE.activeProjectTab && STATE.projects.length > 0) {
+                STATE.activeProjectTab = STATE.projects[0].id;
+            } else if (!STATE.activeProjectTab) {
+                STATE.activeProjectTab = 'ADHOC'; // Default to Adhoc if no projects
+            }
+
+            // Project Tabs
+            const projects = [...STATE.projects, { id: 'ADHOC', name: 'Việc lẻ (Ad-hoc)' }];
+            
+            // Filter Tasks
+            const tasks = STATE.tasks.filter(t => {
+                if (STATE.activeProjectTab === 'ADHOC') return !t.projectId;
+                return t.projectId === STATE.activeProjectTab;
+            });
+
+            // Calculate Progress of Current Board
+            const total = tasks.length;
+            const completed = tasks.filter(t => t.status === 'COMPLETED').length;
+            const percent = total ? Math.round((completed/total)*100) : 0;
+
+            const isAdmin = STATE.currentUser.role === 'ADMIN';
+
+            el.innerHTML = `
+                <!-- Project Tabs -->
+                <div class="flex items-center gap-2 overflow-x-auto pb-2 mb-4 custom-scroll">
+                    ${projects.map(p => `
+                        <button onclick="STATE.activeProjectTab = '${p.id}'; renderProjectBoard($('#content'))" 
+                            class="whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all border ${STATE.activeProjectTab === p.id ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}">
+                            ${p.name}
+                        </button>
+                    `).join('')}
+                    ${isAdmin ? `<button onclick="createNewProject()" class="whitespace-nowrap px-3 py-2 rounded-full text-sm font-bold bg-gray-200 text-gray-600 hover:bg-gray-300" title="Thêm dự án mới"><i data-lucide="plus" width="16"></i></button>` : ''}
+                </div>
+
+                <!-- Board Header -->
+                <div class="bg-white rounded-t-xl border border-gray-200 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div class="flex-1 w-full">
+                        <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                            ${projects.find(p=>p.id===STATE.activeProjectTab)?.name}
+                            <span class="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">${total} tasks</span>
+                        </h3>
+                        <div class="w-full max-w-md mt-2 h-2 bg-gray-200 rounded-full overflow-hidden flex">
+                            <div class="h-full bg-green-500" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
+                    ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold shadow flex items-center gap-2"><i data-lucide="plus"></i> Thêm việc</button>` : ''}
+                </div>
+
+                <!-- Monday Style Table -->
+                <div class="bg-white border-x border-b border-gray-200 rounded-b-xl overflow-x-auto shadow-sm pb-8 min-h-[500px]">
+                    <div class="min-w-[1000px]">
+                        <!-- Header Row -->
+                        <div class="flex bg-slate-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                            <div class="p-3 w-[350px] border-r border-gray-200">Nội dung công việc</div>
+                            <div class="p-3 w-[150px] border-r border-gray-200 text-center">Người thực hiện</div>
+                            <div class="p-3 w-[150px] border-r border-gray-200 text-center">Trạng thái</div>
+                            <div class="p-3 w-[200px] border-r border-gray-200 text-center">Tiến độ / Hạn chót</div>
+                            <div class="p-3 flex-1 border-r border-gray-200">Kết quả cập nhật</div>
+                            <div class="p-3 w-[80px] text-center">Thao tác</div>
+                        </div>
+
+                        <!-- Data Rows -->
+                        ${tasks.length > 0 ? tasks.map(t => {
+                            const status = getTaskStatus(t); // returns 'COMPLETED', 'OVERDUE', etc.
+                            const statusConfig = CONSTANTS.STATUS[status] || CONSTANTS.STATUS.TODO;
+                            const assignees = getAssignees(t);
+                            const avatars = assignees.map(uid => {
+                                const u = STATE.users.find(user => user.id === uid);
+                                return `<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold border-2 border-white -ml-2 first:ml-0" title="${u?.name}">${u?.name?.charAt(0)}</div>`;
+                            }).join('');
+                            
+                            // Timeline calc
+                            const start = new Date(t.startDate).getTime();
+                            const end = new Date(t.deadline).getTime();
+                            const now = new Date().getTime();
+                            let progress = 0;
+                            if (status === 'COMPLETED') progress = 100;
+                            else if (now > end) progress = 100;
+                            else if (now > start) progress = ((now - start) / (end - start)) * 100;
+
+                            const isUserRelated = isAdmin || assignees.includes(STATE.currentUser.id) || (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
+
+                            return `
+                                <div class="flex monday-row text-sm items-stretch">
+                                    <!-- Title -->
+                                    <div class="p-3 w-[350px] monday-cell flex items-center gap-2 group">
+                                        <div class="flex-1 cursor-pointer" onclick="viewTask('${t.id}')">
+                                            <div class="font-medium text-gray-700 group-hover:text-blue-600 truncate" title="${t.title}">${t.title}</div>
+                                            ${t.notes ? `<div class="text-[10px] text-gray-400 truncate"><i data-lucide="message-square" width="10" class="inline"></i> ${t.notes}</div>` : ''}
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Assignee -->
+                                    <div class="p-2 w-[150px] monday-cell flex items-center justify-center pl-4">
+                                        <div class="flex items-center justify-center">${avatars}</div>
+                                    </div>
+
+                                    <!-- Status (Clickable) -->
+                                    <div class="w-[150px] monday-cell p-1">
+                                        <div onclick="${isUserRelated ? `quickStatus('${t.id}')` : ''}" class="${CONSTANTS.STATUS[status].color} monday-status rounded shadow-sm text-xs select-none">
+                                            ${CONSTANTS.STATUS[status].text}
+                                        </div>
+                                    </div>
+
+                                    <!-- Timeline -->
+                                    <div class="p-3 w-[200px] monday-cell flex flex-col justify-center">
+                                        <div class="flex justify-between text-[10px] text-gray-500 mb-1">
+                                            <span>${t.startDate.slice(5)}</span>
+                                            <span class="${status==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline.slice(5)}</span>
+                                        </div>
+                                        <div class="timeline-bar w-full">
+                                            <div class="timeline-progress ${status==='OVERDUE'?'bg-red-500':(status==='COMPLETED'?'bg-green-500':'bg-blue-500')}" style="width: ${progress}%"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Result (Quick View/Edit) -->
+                                    <div class="p-2 flex-1 monday-cell flex items-center">
+                                        ${t.reportResult ? 
+                                            `<div class="text-xs text-gray-600 truncate cursor-pointer hover:bg-gray-100 p-1 rounded w-full" onclick="viewTask('${t.id}')" title="${t.reportResult}">${t.reportResult}</div>` : 
+                                            (isUserRelated ? `<button onclick="viewTask('${t.id}')" class="text-[10px] text-gray-400 hover:text-blue-600 border border-dashed border-gray-300 px-2 py-1 rounded w-full text-left">+ Cập nhật kết quả</button>` : '')
+                                        }
+                                    </div>
+
+                                    <!-- Actions -->
+                                    <div class="p-2 w-[80px] flex items-center justify-center gap-1">
+                                        ${isAdmin && status !== 'COMPLETED' ? 
+                                            `<button onclick="nudgeUser('${t.id}')" class="text-gray-400 hover:text-amber-500 p-1.5 rounded-full hover:bg-amber-50 transition" title="Đôn đốc / Nhắc nhở"><i data-lucide="bell" width="16"></i></button>` : ''
+                                        }
+                                        <button onclick="viewTask('${t.id}')" class="text-gray-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50"><i data-lucide="more-horizontal" width="16"></i></button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('') : `
+                            <div class="flex flex-col items-center justify-center py-12 text-gray-400">
+                                <i data-lucide="clipboard" width="48" class="mb-2 opacity-20"></i>
+                                <p>Chưa có công việc nào trong dự án này</p>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        window.createNewProject = async () => {
+             const { value: text } = await Swal.fire({
+                title: 'Tạo Dự án mới',
+                input: 'text',
+                inputPlaceholder: 'Nhập tên dự án...',
+                showCancelButton: true
+            });
+            if (text) {
+                const newId = uuid();
+                STATE.projects.push({ id: newId, name: text });
+                STATE.activeProjectTab = newId;
+                await DB.save();
+                renderProjectBoard($('#content'));
+                Swal.fire('Thành công', 'Đã tạo dự án mới', 'success');
+            }
+        };
+
+        window.quickStatus = async (taskId) => {
+            // Monday style quick picker
+            const inputOptions = {
+                'TODO': 'Chưa bắt đầu (Xám)',
+                'IN_PROGRESS': 'Đang thực hiện (Xanh dương)',
+                'STUCK': 'Vướng mắc (Cam)',
+                'COMPLETED': 'Hoàn thành (Xanh lá)'
+            };
+            
+            const { value: status } = await Swal.fire({
+                title: 'Cập nhật trạng thái nhanh',
+                input: 'radio',
+                inputOptions: inputOptions,
+                inputValue: STATE.tasks.find(t=>t.id===taskId).status,
+                showCancelButton: true,
+            });
+
+            if (status) {
+                const t = STATE.tasks.find(t=>t.id===taskId);
+                t.status = status;
+                await DB.save();
+                // Re-render only the board to be fast
+                renderProjectBoard($('#content')); 
+                
+                // Show mini toast
+                const Toast = Swal.mixin({
+                    toast: true, position: 'top-end', showConfirmButton: false, timer: 1500, timerProgressBar: true
+                });
+                Toast.fire({ icon: 'success', title: 'Đã cập nhật trạng thái' });
+            }
+        };
+
+        window.nudgeUser = (taskId) => {
+            const t = STATE.tasks.find(t=>t.id===taskId);
+            const assignees = getAssignees(t).map(uid => STATE.users.find(u=>u.id===uid)?.name).join(', ');
+            
+            // In a real app, this would send an email/notification API
+            Swal.fire({
+                title: 'Gửi nhắc nhở?',
+                text: `Gửi thông báo đôn đốc đến: ${assignees}`,
+                icon: 'info',
+                showCancelButton: true,
+                confirmButtonText: 'Gửi ngay'
+            }).then((r) => {
+                if(r.isConfirmed) {
+                    Swal.fire('Đã gửi!', 'Nhân sự sẽ nhận được thông báo đôn đốc.', 'success');
+                }
+            });
+        };
+
         /* --- TASK MANAGEMENT --- */
         const renderTasks = (el) => {
             const isAdmin = STATE.currentUser.role === 'ADMIN';
@@ -552,7 +780,8 @@
                         </thead>
                         <tbody>
                             ${tasks.length > 0 ? tasks.map(t => {
-                                const st = CONSTANTS.STATUS[getTaskStatus(t)];
+                                const stKey = getTaskStatus(t);
+                                const st = CONSTANTS.STATUS[stKey] || CONSTANTS.STATUS.TODO;
                                 const assignees = getAssignees(t);
                                 const assigneeNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
                                 const collabCount = (t.collaborators || []).length;
@@ -572,7 +801,7 @@
                                     <td>
                                         <span class="${getTaskStatus(t)==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline}</span>
                                     </td>
-                                    <td><span class="text-xs font-bold px-2 py-1 rounded ${st.color}">${st.label}</span></td>
+                                    <td><span class="text-xs font-bold px-2 py-1 rounded bg-opacity-20 ${st.color.replace('bg-', 'text-').replace('text-white','')} ${st.color.replace('bg-', 'bg-').replace('text-white','').replace('500','100')}">${st.label}</span></td>
                                     <td class="text-center">
                                         <button onclick="viewTask('${t.id}')" class="text-blue-600 hover:bg-blue-50 p-1 rounded" title="Xem chi tiết"><i data-lucide="eye" width="16"></i></button>
                                         ${isAdmin ? `
@@ -636,6 +865,7 @@
                 const assignees = getAssignees(t);
                 const mainNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
                 const collabs = (t.collaborators || []).map(cid => STATE.users.find(x=>x.id===cid)?.name).join(', ');
+                const st = getTaskStatus(t);
                 return {
                     "Mã việc": t.id,
                     "Dự án": t.projectId ? (STATE.projects.find(p=>p.id===t.projectId)?.name) : "Việc lẻ",
@@ -645,7 +875,7 @@
                     "Phối hợp": collabs,
                     "Ngày giao": t.startDate,
                     "Hạn chót": t.deadline,
-                    "Trạng thái": CONSTANTS.STATUS[getTaskStatus(t)].label,
+                    "Trạng thái": CONSTANTS.STATUS[st]?.label || st,
                     "Kết quả TH": t.reportResult || '',
                     "Vướng mắc": t.reportIssues || '',
                     "Ghi chú của NV": t.reportNotes || ''
@@ -802,13 +1032,17 @@
                              <div>
                                 <label class="block text-xs font-bold mb-1 text-gray-600">Loại hình công việc</label>
                                 <select id="swal-type" class="swal2-input m-0 w-full h-10 text-sm" onchange="this.value==='project'?document.getElementById('pj-group').classList.remove('hidden'):document.getElementById('pj-group').classList.add('hidden')">
-                                    <option value="adhoc" ${!task?.projectId?'selected':''}>Việc lẻ (Ad-hoc)</option>
-                                    <option value="project" ${task?.projectId?'selected':''}>Việc theo Dự án</option>
+                                    <option value="adhoc" ${(!task?.projectId && STATE.activeProjectTab === 'ADHOC') ?'selected':''}>Việc lẻ (Ad-hoc)</option>
+                                    <option value="project" ${(task?.projectId || (STATE.activeProjectTab && STATE.activeProjectTab !== 'ADHOC'))?'selected':''}>Việc theo Dự án</option>
                                 </select>
                             </div>
-                            <div id="pj-group" class="${!task?.projectId?'hidden':''}">
+                            <div id="pj-group" class="${(!task?.projectId && STATE.activeProjectTab === 'ADHOC') ? 'hidden' : ''}">
                                 <label class="block text-xs font-bold mb-1 text-gray-600">Tên Dự án</label>
-                                <input id="swal-pj" class="swal2-input m-0 w-full h-10 text-sm" placeholder="Nhập tên dự án..." value="${task?.projectId ? STATE.projects.find(p=>p.id===task.projectId)?.name : ''}">
+                                <input id="swal-pj" class="swal2-input m-0 w-full h-10 text-sm" list="project-list" placeholder="Chọn hoặc nhập dự án mới..." 
+                                    value="${task?.projectId ? STATE.projects.find(p=>p.id===task.projectId)?.name : (STATE.activeProjectTab !== 'ADHOC' ? STATE.projects.find(p=>p.id===STATE.activeProjectTab)?.name : '')}">
+                                <datalist id="project-list">
+                                    ${STATE.projects.map(p => `<option value="${p.name}"></option>`).join('')}
+                                </datalist>
                             </div>
                         </div>
 
@@ -845,6 +1079,7 @@
                                 <select id="swal-status" class="swal2-input m-0 w-full h-10 text-sm" ${!editId ? 'disabled' : ''}>
                                     <option value="TODO" ${task?.status==='TODO'?'selected':''}>Mới tạo</option>
                                     <option value="IN_PROGRESS" ${task?.status==='IN_PROGRESS'?'selected':''}>Đang thực hiện</option>
+                                    <option value="STUCK" ${task?.status==='STUCK'?'selected':''}>Vướng mắc</option>
                                     <option value="COMPLETED" ${task?.status==='COMPLETED'?'selected':''}>Hoàn thành</option>
                                 </select>
                             </div>
@@ -926,7 +1161,8 @@
                         });
                     }
                     await DB.save();
-                    renderTasks($('#content'));
+                    if(STATE.activePage === 'projects') renderProjectBoard($('#content'));
+                    else renderTasks($('#content'));
                     Swal.fire('Thành công', 'Đã lưu công việc vào hệ thống', 'success');
                 }
             });
@@ -1064,6 +1300,8 @@
                 `;
             }
 
+            const statusObj = CONSTANTS.STATUS[t.status] || CONSTANTS.STATUS.TODO;
+            
             Swal.fire({
                 title: `<span class="text-xl text-blue-800">${t.title}</span>`,
                 width: '700px',
@@ -1092,7 +1330,7 @@
                             </div>
                              <div>
                                 <strong class="text-gray-700 block mb-1">Trạng thái:</strong>
-                                <span class="px-2 py-1 rounded font-bold text-xs ${CONSTANTS.STATUS[t.status].color}">${CONSTANTS.STATUS[t.status].label}</span>
+                                <span class="px-2 py-1 rounded font-bold text-xs text-white ${statusObj.color.replace('bg-', 'bg-')}">${statusObj.label}</span>
                             </div>
                         </div>
                         
@@ -1136,7 +1374,8 @@
                     }
                     await DB.save();
                     Swal.fire('Thành công', 'Đã lưu báo cáo thực hiện', 'success');
-                    renderTasks($('#content'));
+                    if(STATE.activePage === 'projects') renderProjectBoard($('#content'));
+                    else renderTasks($('#content'));
                 }
             });
         };
@@ -1172,7 +1411,8 @@
                     
                     await DB.save();
                     Swal.fire('Tuyệt vời', 'Công việc đã được chuyển sang trạng thái Hoàn thành', 'success');
-                    renderTasks($('#content')); // Refresh list
+                    if(STATE.activePage === 'projects') renderProjectBoard($('#content'));
+                    else renderTasks($('#content'));
                 }
             }
         };
