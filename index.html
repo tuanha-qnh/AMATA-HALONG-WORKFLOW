@@ -102,9 +102,10 @@
             activePage: 'dashboard',
             activeProjectTab: null, // For Project Board
             personalFilterMonth: new Date().toISOString().slice(0, 7),
+            projectBoardFilterMonth: new Date().toISOString().slice(0, 7), // For Project Board
             lang: 'vi',
             refreshTimer: null,
-            taskFilters: { search: '', project: '', user: '' }
+            taskFilters: { search: '', project: '', user: '', month: new Date().toISOString().slice(0, 7) } // Added month for Task List
         };
 
         const DB = {
@@ -239,9 +240,8 @@
                             </div>
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
-                        <div class="mt-4 flex justify-between items-center text-xs">
-                             <span class="text-gray-400">Version 3.0 - Project Board</span>
-                             <button onclick="localStorage.removeItem('AMATA_DB'); location.reload()" class="text-red-400 hover:underline">Khôi phục dữ liệu gốc</button>
+                        <div class="mt-4 text-center text-xs">
+                             <span class="text-gray-400">Version 3.1 - Month Filter</span>
                         </div>
                     </div>
                 </div>
@@ -639,20 +639,21 @@
                 STATE.activeProjectTab = 'ADHOC'; // Default to Adhoc if no projects
             }
 
-            // Project Tabs
             const projects = [...STATE.projects, { id: 'ADHOC', name: 'Việc lẻ (Ad-hoc)' }];
             
-            // Filter Tasks
-            const tasks = STATE.tasks.filter(t => {
+            // Filter Tasks by project first
+            let tasks = STATE.tasks.filter(t => {
                 if (STATE.activeProjectTab === 'ADHOC') return !t.projectId;
                 return t.projectId === STATE.activeProjectTab;
             });
+            
+            // Then apply month filter
+            tasks = tasks.filter(t => t.deadline && t.deadline.startsWith(STATE.projectBoardFilterMonth));
 
-            // Calculate Progress of Current Board
+
             const total = tasks.length;
             const completed = tasks.filter(t => t.status === 'COMPLETED').length;
             const percent = total ? Math.round((completed/total)*100) : 0;
-
             const isAdmin = STATE.currentUser.role === 'ADMIN';
 
             el.innerHTML = `
@@ -678,7 +679,13 @@
                             <div class="h-full bg-green-500" style="width: ${percent}%"></div>
                         </div>
                     </div>
-                    ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold shadow flex items-center gap-2"><i data-lucide="plus"></i> Thêm việc</button>` : ''}
+                     <div class="flex items-center gap-2 self-stretch">
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Lọc theo tháng</label>
+                            <input type="month" value="${STATE.projectBoardFilterMonth}" onchange="STATE.projectBoardFilterMonth = this.value; renderProjectBoard($('#content'))" class="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 h-9">
+                        </div>
+                        ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold shadow flex items-center gap-2 self-end h-9"><i data-lucide="plus"></i> Thêm việc</button>` : ''}
+                    </div>
                 </div>
 
                 <!-- Monday Style Table -->
@@ -768,7 +775,7 @@
                         }).join('') : `
                             <div class="flex flex-col items-center justify-center py-12 text-gray-400">
                                 <i data-lucide="clipboard" width="48" class="mb-2 opacity-20"></i>
-                                <p>Chưa có công việc nào trong dự án này</p>
+                                <p>Không có công việc nào trong tháng này.</p>
                             </div>
                         `}
                     </div>
@@ -880,6 +887,11 @@
                     return assignees.includes(filters.user);
                 });
             }
+
+            // 5. Filter by Month
+            if (filters.month) {
+                tasks = tasks.filter(t => t.deadline && t.deadline.startsWith(filters.month));
+            }
             
             // Generate Project Options
             const projectOptions = `<option value="">-- Tất cả Dự án --</option>
@@ -892,30 +904,41 @@
 
             el.innerHTML = `
                 <div class="flex flex-col md:flex-row justify-between mb-4 gap-3">
-                    <div class="flex flex-col md:flex-row gap-2 flex-1">
+                    <div class="flex flex-col md:flex-row gap-2 flex-1 items-end">
                         <!-- Search Box -->
-                        <div class="relative w-full md:w-64">
-                            <span class="absolute inset-y-0 left-0 flex items-center pl-2 text-gray-400">
-                                <i data-lucide="search" width="16"></i>
-                            </span>
-                            <input type="text" placeholder="Tìm kiếm công việc..." class="border p-2 pl-8 rounded text-sm w-full outline-none focus:ring-1 focus:ring-blue-500" value="${filters.search}" onkeyup="setTaskFilter('search', this.value)">
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Tìm kiếm</label>
+                            <div class="relative w-full md:w-56">
+                                <span class="absolute inset-y-0 left-0 flex items-center pl-2 text-gray-400">
+                                    <i data-lucide="search" width="16"></i>
+                                </span>
+                                <input type="text" placeholder="Tên công việc..." class="border p-2 pl-8 rounded text-sm w-full outline-none focus:ring-1 focus:ring-blue-500 h-10" value="${filters.search}" onkeyup="setTaskFilter('search', this.value)">
+                            </div>
                         </div>
 
-                        <!-- Project Filter -->
-                        <select class="border p-2 rounded text-sm w-full md:w-48 outline-none focus:ring-1 focus:ring-blue-500" onchange="setTaskFilter('project', this.value)">
-                            ${projectOptions}
-                        </select>
-
-                        <!-- User Filter (Admin) -->
+                        <!-- Filters -->
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Dự án</label>
+                            <select class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" onchange="setTaskFilter('project', this.value)">
+                                ${projectOptions}
+                            </select>
+                        </div>
                         ${isAdmin ? `
-                        <select class="border p-2 rounded text-sm w-full md:w-48 outline-none focus:ring-1 focus:ring-blue-500" onchange="setTaskFilter('user', this.value)">
-                            ${userOptions}
-                        </select>
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Nhân sự</label>
+                            <select class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" onchange="setTaskFilter('user', this.value)">
+                                ${userOptions}
+                            </select>
+                        </div>
                         ` : ''}
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Tháng</label>
+                            <input type="month" class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" value="${filters.month}" onchange="setTaskFilter('month', this.value)">
+                        </div>
                     </div>
 
                     <!-- Add Button -->
-                    ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 whitespace-nowrap"><i data-lucide="plus"></i> Giao việc mới</button>` : ''}
+                    ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 whitespace-nowrap self-end h-10"><i data-lucide="plus"></i> Giao việc mới</button>` : ''}
                 </div>
 
                 <div class="bg-white rounded-lg shadow overflow-hidden">
