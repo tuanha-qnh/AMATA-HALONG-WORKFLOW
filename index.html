@@ -81,6 +81,11 @@
             },
             PRIORITY: {
                 LOW: 'Thấp', MEDIUM: 'Vừa', HIGH: 'Cao', URGENT: 'Khẩn cấp'
+            },
+            PERSONAL_STATUS: {
+                UNPROCESSED: { label: 'Chưa xử lý' },
+                PROCESSING: { label: 'Đang xử lý' },
+                COMPLETED: { label: 'Đã hoàn thành' }
             }
         };
 
@@ -93,8 +98,10 @@
             users: [],
             tasks: [],
             projects: [],
+            personalTasks: [],
             activePage: 'dashboard',
             activeProjectTab: null, // For Project Board
+            personalFilterMonth: new Date().toISOString().slice(0, 7),
             lang: 'vi',
             refreshTimer: null,
             taskFilters: { search: '', project: '', user: '' }
@@ -117,6 +124,7 @@
                             STATE.users = data.users || [];
                             STATE.tasks = data.tasks || [];
                             STATE.projects = data.projects || [];
+                            STATE.personalTasks = data.personalTasks || [];
                         } else {
                             // Init default admin if totally empty
                             STATE.users = [{id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false}];
@@ -132,6 +140,7 @@
                         STATE.users = json.record.users || [];
                         STATE.tasks = json.record.tasks || [];
                         STATE.projects = json.record.projects || [];
+                        STATE.personalTasks = json.record.personalTasks || [];
                         
                         // Auto Restore Admin if deleted
                         if (!STATE.users.some(u => u.role === 'ADMIN')) {
@@ -147,7 +156,7 @@
             },
             async save() {
                 toggleLoader(true);
-                const payload = { users: STATE.users, tasks: STATE.tasks, projects: STATE.projects };
+                const payload = { users: STATE.users, tasks: STATE.tasks, projects: STATE.projects, personalTasks: STATE.personalTasks };
                 try {
                     if (CONFIG.BIN_ID.includes('67b7100')) {
                         localStorage.setItem('AMATA_DB', JSON.stringify(payload));
@@ -312,6 +321,7 @@
 
                     <nav class="flex-1 overflow-y-auto py-4 space-y-1">
                         ${navItem('dashboard', 'layout-dashboard', 'Tổng quan (Dashboard)')}
+                        ${navItem('personal', 'check-square', 'Công việc cá nhân')}
                         ${navItem('projects', 'trello', 'Quản lý Dự án')}
                         ${navItem('tasks', 'clipboard-list', 'Quản lý Giao việc')}
                         ${navItem('reports', 'bar-chart-2', 'Báo cáo Thống kê')}
@@ -364,6 +374,7 @@
             
             const titles = {
                 dashboard: 'Dashboard Tổng quan',
+                personal: 'Công việc cá nhân',
                 tasks: 'Quản lý Công việc',
                 projects: 'Dự án (Project Board)',
                 reports: 'Báo cáo & Xuất dữ liệu',
@@ -381,6 +392,7 @@
             
             switch(pageId) {
                 case 'dashboard': renderDashboard(container); break;
+                case 'personal': renderPersonalTasks(container); break;
                 case 'tasks': renderTasks(container); break;
                 case 'projects': renderProjectBoard(container); break;
                 case 'reports': renderReports(container); break;
@@ -476,6 +488,147 @@
                 </div>
             </div>
         `;
+
+        /* --- PERSONAL TASKS MODULE --- */
+        const renderPersonalTasks = (el) => {
+            const myTasks = STATE.personalTasks.filter(t => t.userId === STATE.currentUser.id && t.deadline.startsWith(STATE.personalFilterMonth));
+            el.innerHTML = `
+                <div class="flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-4 rounded-lg shadow-sm">
+                    <div class="flex items-center gap-2">
+                        <label for="month-filter" class="text-sm font-medium text-gray-600">Lọc theo tháng:</label>
+                        <input type="month" id="month-filter" value="${STATE.personalFilterMonth}" onchange="STATE.personalFilterMonth = this.value; renderPersonalTasks($('#content'))" class="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500">
+                    </div>
+                    <button onclick="openPersonalTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 mt-3 md:mt-0">
+                        <i data-lucide="plus"></i> Thêm công việc cá nhân
+                    </button>
+                </div>
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <table class="w-full amt-table text-left">
+                        <thead>
+                            <tr>
+                                <th>Tên công việc</th>
+                                <th>Deadline</th>
+                                <th>Trạng thái</th>
+                                <th>Ghi chú</th>
+                                <th class="text-center">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${myTasks.length > 0 ? myTasks.map(t => `
+                                <tr>
+                                    <td>
+                                        <div class="font-bold">${t.title}</div>
+                                        <div class="text-xs text-gray-500">${t.description || ''}</div>
+                                    </td>
+                                    <td>${t.deadline}</td>
+                                    <td>${CONSTANTS.PERSONAL_STATUS[t.status].label}</td>
+                                    <td class="text-xs italic text-gray-500">${t.notes || '-'}</td>
+                                    <td class="text-center">
+                                        <button onclick="openPersonalTaskModal('${t.id}')" class="text-amber-600 p-1 hover:bg-amber-50 rounded" title="Sửa"><i data-lucide="edit-3" width="16"></i></button>
+                                        <button onclick="deletePersonalTask('${t.id}')" class="text-red-600 p-1 hover:bg-red-50 rounded" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>
+                                    </td>
+                                </tr>
+                            `).join('') : `<tr><td colspan="5" class="text-center py-8 text-gray-500">Chưa có công việc nào trong tháng này.</td></tr>`}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        window.openPersonalTaskModal = (editId = null) => {
+            const task = editId ? STATE.personalTasks.find(t => t.id === editId) : null;
+            Swal.fire({
+                title: editId ? 'Sửa công việc cá nhân' : 'Thêm công việc mới',
+                width: '600px',
+                html: `
+                    <div class="text-left space-y-4 pt-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Tên công việc</label>
+                            <input id="p-title" class="swal2-input m-0 w-full" placeholder="Nhập tên công việc" value="${task?.title || ''}">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nội dung thực hiện</label>
+                            <textarea id="p-desc" class="swal2-textarea m-0 w-full h-24" placeholder="Mô tả chi tiết...">${task?.description || ''}</textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Thời hạn hoàn thành</label>
+                            <input type="date" id="p-deadline" class="swal2-input m-0 w-full" value="${task?.deadline || ''}">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Trạng thái</label>
+                            <div class="flex justify-around items-center pt-2">
+                                <label><input type="radio" name="p-status" value="UNPROCESSED" ${task?.status === 'UNPROCESSED' || !task ? 'checked' : ''}> Chưa xử lý</label>
+                                <label><input type="radio" name="p-status" value="PROCESSING" ${task?.status === 'PROCESSING' ? 'checked' : ''}> Đang xử lý</label>
+                                <label><input type="radio" name="p-status" value="COMPLETED" ${task?.status === 'COMPLETED' ? 'checked' : ''}> Đã hoàn thành</label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Ghi chú</label>
+                            <input id="p-notes" class="swal2-input m-0 w-full" placeholder="Thêm ghi chú..." value="${task?.notes || ''}">
+                        </div>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Lưu',
+                cancelButtonText: 'Hủy',
+                preConfirm: () => {
+                    const title = document.getElementById('p-title').value;
+                    const deadline = document.getElementById('p-deadline').value;
+                    if (!title || !deadline) {
+                        Swal.showValidationMessage('Vui lòng nhập Tên công việc và Thời hạn');
+                        return false;
+                    }
+                    return {
+                        title: title,
+                        description: document.getElementById('p-desc').value,
+                        deadline: deadline,
+                        status: document.querySelector('input[name="p-status"]:checked').value,
+                        notes: document.getElementById('p-notes').value
+                    }
+                }
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    const data = result.value;
+                    if (editId) {
+                        const taskIndex = STATE.personalTasks.findIndex(t => t.id === editId);
+                        if (taskIndex > -1) {
+                            STATE.personalTasks[taskIndex] = { ...STATE.personalTasks[taskIndex], ...data };
+                        }
+                    } else {
+                        const newTask = {
+                            id: uuid(),
+                            userId: STATE.currentUser.id,
+                            ...data
+                        };
+                        STATE.personalTasks.push(newTask);
+                    }
+                    await DB.save();
+                    renderPersonalTasks(document.getElementById('content'));
+                    Swal.fire('Đã lưu!', 'Công việc cá nhân của bạn đã được cập nhật.', 'success');
+                }
+            });
+        };
+
+        window.deletePersonalTask = (id) => {
+            Swal.fire({
+                title: 'Bạn chắc chắn muốn xóa?',
+                text: "Hành động này không thể hoàn tác!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Xóa ngay',
+                cancelButtonText: 'Hủy'
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    STATE.personalTasks = STATE.personalTasks.filter(t => t.id !== id);
+                    await DB.save();
+                    renderPersonalTasks(document.getElementById('content'));
+                    Swal.fire('Đã xóa!', 'Công việc đã được xóa.', 'success');
+                }
+            });
+        };
 
         /* --- PROJECT BOARD (MONDAY.COM STYLE) --- */
         const renderProjectBoard = (el) => {
