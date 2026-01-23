@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -9,10 +10,12 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- SweetAlert2 for nice popups -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <!-- SheetJS for Excel Export -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
+    <!-- Firebase SDK (Added for Firebase integration) -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
@@ -59,25 +62,30 @@
 
     <script>
         // ==========================================
-        // 1. CONFIGURATION (CẤU HÌNH DATABASE ONLINE)
+        // 1. CONFIGURATION (FIREBASE)
         // ==========================================
         
-        // HƯỚNG DẪN: Đăng ký JSONBin.io, tạo Bin mới với nội dung JSON rỗng ban đầu.
-        // Copy Bin ID và X-Master-Key vào đây.
-        const CONFIG = {
-            // Thay đổi 2 dòng này bằng Key của bạn
-            BIN_ID: '69399c5bae596e708f908443', 
-            API_KEY: '$2a$10$SXHVbYBI5MNWEGuKO/hhoeg47HeYzilZB29gM4yofDMP0nbXqER1q' 
-            // Lưu ý: Key mẫu trên là giả, bạn phải tự tạo key riêng thì dữ liệu mới được bảo mật
+        const firebaseConfig = {
+          apiKey: "AIzaSyDeYseZjfRKa39zyGb6tXHMB6w5-YbOLxM",
+          authDomain: "achl-task-manager.firebaseapp.com",
+          projectId: "achl-task-manager",
+          storageBucket: "achl-task-manager.firebasestorage.app",
+          messagingSenderId: "45759210542",
+          appId: "1:45759210542:web:5fedbf2466c8c2893b2bbf",
+          measurementId: "G-6V9DCPY7ZY"
         };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const firestore = firebase.firestore();
 
         const CONSTANTS = {
             STATUS: {
-                TODO: { label: 'Mới tạo', color: 'bg-gray-400', text: 'Chưa bắt đầu' }, // Monday style: Gray
-                IN_PROGRESS: { label: 'Đang thực hiện', color: 'bg-blue-500', text: 'Đang làm' }, // Monday style: Blue
-                COMPLETED: { label: 'Hoàn thành', color: 'bg-green-500', text: 'Đã xong' }, // Monday style: Green
-                OVERDUE: { label: 'Quá hạn', color: 'bg-red-500', text: 'Quá hạn' }, // Monday style: Red
-                STUCK: { label: 'Vướng mắc', color: 'bg-orange-400', text: 'Đang vướng' } // Monday style: Orange
+                TODO: { label: 'Mới tạo', color: 'bg-gray-400', text: 'Chưa bắt đầu' },
+                IN_PROGRESS: { label: 'Đang thực hiện', color: 'bg-blue-500', text: 'Đang làm' },
+                COMPLETED: { label: 'Hoàn thành', color: 'bg-green-500', text: 'Đã xong' },
+                OVERDUE: { label: 'Quá hạn', color: 'bg-red-500', text: 'Quá hạn' },
+                STUCK: { label: 'Vướng mắc', color: 'bg-orange-400', text: 'Đang vướng' }
             },
             PRIORITY: {
                 LOW: 'Thấp', MEDIUM: 'Vừa', HIGH: 'Cao', URGENT: 'Khẩn cấp'
@@ -90,7 +98,7 @@
         };
 
         // ==========================================
-        // 2. STATE & DATABASE SERVICE
+        // 2. STATE & DATABASE SERVICE (FIREBASE VERSION)
         // ==========================================
 
         let STATE = {
@@ -100,81 +108,102 @@
             projects: [],
             personalTasks: [],
             activePage: 'dashboard',
-            activeProjectTab: null, // For Project Board
+            activeProjectTab: null,
             personalFilterMonth: new Date().toISOString().slice(0, 7),
-            projectBoardFilterMonth: new Date().toISOString().slice(0, 7), // For Project Board
+            projectBoardFilterMonth: new Date().toISOString().slice(0, 7),
             lang: 'vi',
             refreshTimer: null,
-            taskFilters: { search: '', project: '', user: '', month: new Date().toISOString().slice(0, 7) } // Added month for Task List
+            taskFilters: { search: '', project: '', user: '', month: new Date().toISOString().slice(0, 7) }
         };
 
         const DB = {
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Master-Key': CONFIG.API_KEY
+            // Helper function to get all documents from a collection
+            async _getAllFromCollection(collectionName) {
+                const snapshot = await firestore.collection(collectionName).get();
+                return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             },
+
+            // Re-implement fetch to read from multiple Firestore collections
             async fetch(silent = false) {
-                if(!silent) toggleLoader(true);
+                if (!silent) toggleLoader(true);
                 try {
-                    // Nếu người dùng chưa cấu hình key thật, dùng dữ liệu mẫu local
-                    if (CONFIG.BIN_ID.includes('67b7100')) {
-                        console.warn("Using Local Mock Data because API Key is placeholder");
-                        const local = localStorage.getItem('AMATA_DB');
-                        if (local) {
-                            const data = JSON.parse(local);
-                            STATE.users = data.users || [];
-                            STATE.tasks = data.tasks || [];
-                            STATE.projects = data.projects || [];
-                            STATE.personalTasks = data.personalTasks || [];
-                        } else {
-                            // Init default admin if totally empty
-                            STATE.users = [{id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false}];
-                        }
-                    } else {
-                        // Gọi Online Database
-                        const res = await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.BIN_ID}/latest`, {
-                            method: 'GET',
-                            headers: DB.headers
-                        });
-                        if (!res.ok) throw new Error("Không thể kết nối Database!");
-                        const json = await res.json();
-                        STATE.users = json.record.users || [];
-                        STATE.tasks = json.record.tasks || [];
-                        STATE.projects = json.record.projects || [];
-                        STATE.personalTasks = json.record.personalTasks || [];
-                        
-                        // Auto Restore Admin if deleted
-                        if (!STATE.users.some(u => u.role === 'ADMIN')) {
-                             STATE.users.push({id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false});
-                             await DB.save();
-                        }
+                    const [users, tasks, projects, personalTasks] = await Promise.all([
+                        DB._getAllFromCollection('users'),
+                        DB._getAllFromCollection('tasks'),
+                        DB._getAllFromCollection('projects'),
+                        DB._getAllFromCollection('personalTasks')
+                    ]);
+                    STATE.users = users;
+                    STATE.tasks = tasks;
+                    STATE.projects = projects;
+                    STATE.personalTasks = personalTasks;
+
+                    // Auto-create Admin if user collection is empty after fetch
+                    if (STATE.users.length === 0) {
+                        console.log("No users found, creating default admin...");
+                        const adminUser = {id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false};
+                        // Use a direct write here as DB.save() isn't suitable for this initial setup
+                        await firestore.collection('users').doc(adminUser.id).set(adminUser);
+                        STATE.users.push(adminUser);
                     }
                 } catch (e) {
-                    if(!silent) Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Bin ID và API Key', 'error');
+                    console.error("Firebase fetch error:", e);
+                    if (!silent) Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Firebase và kết nối mạng.', 'error');
                 } finally {
-                    if(!silent) toggleLoader(false);
+                    if (!silent) toggleLoader(false);
                 }
             },
+
+            // Re-implement save to perform a batch write of the entire state to Firestore
             async save() {
                 toggleLoader(true);
-                const payload = { users: STATE.users, tasks: STATE.tasks, projects: STATE.projects, personalTasks: STATE.personalTasks };
+                const collections = {
+                    users: STATE.users,
+                    tasks: STATE.tasks,
+                    projects: STATE.projects,
+                    personalTasks: STATE.personalTasks
+                };
+                const allDocsToWrite = [];
+
+                // Consolidate all documents from STATE into a single list
+                for (const collectionName in collections) {
+                    if (Array.isArray(collections[collectionName])) {
+                        for (const doc of collections[collectionName]) {
+                            if (doc.id) {
+                                const dataToSet = { ...doc };
+                                delete dataToSet.id; // Don't store 'id' field inside the document
+                                allDocsToWrite.push({
+                                    collection: collectionName,
+                                    id: doc.id,
+                                    data: dataToSet
+                                });
+                            }
+                        }
+                    }
+                }
+
                 try {
-                    if (CONFIG.BIN_ID.includes('67b7100')) {
-                        localStorage.setItem('AMATA_DB', JSON.stringify(payload));
-                    } else {
-                        await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.BIN_ID}`, {
-                            method: 'PUT',
-                            headers: DB.headers,
-                            body: JSON.stringify(payload)
-                        });
+                    // Split into chunks to avoid Firestore's 500 write limit per batch
+                    const CHUNK_SIZE = 400; 
+                    for (let i = 0; i < allDocsToWrite.length; i += CHUNK_SIZE) {
+                        const batch = firestore.batch();
+                        const chunk = allDocsToWrite.slice(i, i + CHUNK_SIZE);
+                        
+                        for (const doc of chunk) {
+                            const docRef = firestore.collection(doc.collection).doc(doc.id);
+                            batch.set(docRef, doc.data);
+                        }
+                        await batch.commit();
                     }
                 } catch (e) {
-                    Swal.fire('Lỗi lưu trữ', 'Không thể lưu dữ liệu lên Online', 'error');
+                    console.error("Firebase save error:", e);
+                    Swal.fire('Lỗi lưu trữ', 'Không thể lưu dữ liệu lên Firebase.', 'error');
                 } finally {
                     toggleLoader(false);
                 }
             }
         };
+
 
         // ==========================================
         // 3. UTILITIES
@@ -182,7 +211,7 @@
 
         const $ = (s) => document.querySelector(s);
         const toggleLoader = (show) => $('#loader').classList.toggle('hidden', !show);
-        const uuid = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+        const uuid = () => firestore.collection('any').doc().id; // Use Firestore's ID generator
         
         const generateEmpCode = () => {
             // Format AMTxxxxx
@@ -241,7 +270,7 @@
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
                         <div class="mt-4 text-center text-xs">
-                             <span class="text-gray-400">Version 3.1 - Month Filter</span>
+                             <span class="text-gray-400">Version 4.1 - Firebase Live</span>
                         </div>
                     </div>
                 </div>
