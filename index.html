@@ -1,22 +1,18 @@
-
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AMATA HALONG WORKFLOW (Firebase Edition)</title>
+    <title>AMATA HALONG WORKFLOW</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SweetAlert2 for nice popups -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- SheetJS for Excel Export -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
-
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
-
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
@@ -63,31 +59,25 @@
 
     <script>
         // ==========================================
-        // 1. CONFIGURATION (CẤU HÌNH FIREBASE)
+        // 1. CONFIGURATION (CẤU HÌNH DATABASE ONLINE)
         // ==========================================
         
-        // HƯỚNG DẪN: Dán đối tượng firebaseConfig bạn đã copy ở Bước 3 vào đây.
-        const firebaseConfig = {
-            apiKey: "BẠN_DÁN_API_KEY_VÀO_ĐÂY",
-            authDomain: "BẠN_DÁN_AUTH_DOMAIN_VÀO_ĐÂY",
-            projectId: "BẠN_DÁN_PROJECT_ID_VÀO_ĐÂY",
-            storageBucket: "BẠN_DÁN_STORAGE_BUCKET_VÀO_ĐÂY",
-            messagingSenderId: "BẠN_DÁN_SENDER_ID_VÀO_ĐÂY",
-            appId: "BẠN_DÁN_APP_ID_VÀO_ĐÂY"
+        // HƯỚNG DẪN: Đăng ký JSONBin.io, tạo Bin mới với nội dung JSON rỗng ban đầu.
+        // Copy Bin ID và X-Master-Key vào đây.
+        const CONFIG = {
+            // Thay đổi 2 dòng này bằng Key của bạn
+            BIN_ID: '69399c5bae596e708f908443', 
+            API_KEY: '$2a$10$SXHVbYBI5MNWEGuKO/hhoeg47HeYzilZB29gM4yofDMP0nbXqER1q' 
+            // Lưu ý: Key mẫu trên là giả, bạn phải tự tạo key riêng thì dữ liệu mới được bảo mật
         };
-        
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const firestore = firebase.firestore();
-
 
         const CONSTANTS = {
             STATUS: {
-                TODO: { label: 'Mới tạo', color: 'bg-gray-400', text: 'Chưa bắt đầu' },
-                IN_PROGRESS: { label: 'Đang thực hiện', color: 'bg-blue-500', text: 'Đang làm' },
-                COMPLETED: { label: 'Hoàn thành', color: 'bg-green-500', text: 'Đã xong' },
-                OVERDUE: { label: 'Quá hạn', color: 'bg-red-500', text: 'Quá hạn' },
-                STUCK: { label: 'Vướng mắc', color: 'bg-orange-400', text: 'Đang vướng' }
+                TODO: { label: 'Mới tạo', color: 'bg-gray-400', text: 'Chưa bắt đầu' }, // Monday style: Gray
+                IN_PROGRESS: { label: 'Đang thực hiện', color: 'bg-blue-500', text: 'Đang làm' }, // Monday style: Blue
+                COMPLETED: { label: 'Hoàn thành', color: 'bg-green-500', text: 'Đã xong' }, // Monday style: Green
+                OVERDUE: { label: 'Quá hạn', color: 'bg-red-500', text: 'Quá hạn' }, // Monday style: Red
+                STUCK: { label: 'Vướng mắc', color: 'bg-orange-400', text: 'Đang vướng' } // Monday style: Orange
             },
             PRIORITY: {
                 LOW: 'Thấp', MEDIUM: 'Vừa', HIGH: 'Cao', URGENT: 'Khẩn cấp'
@@ -100,7 +90,7 @@
         };
 
         // ==========================================
-        // 2. STATE & DATABASE SERVICE (FIREBASE VERSION)
+        // 2. STATE & DATABASE SERVICE
         // ==========================================
 
         let STATE = {
@@ -110,77 +100,92 @@
             projects: [],
             personalTasks: [],
             activePage: 'dashboard',
-            activeProjectTab: null,
+            activeProjectTab: null, // For Project Board
             personalFilterMonth: new Date().toISOString().slice(0, 7),
-            projectBoardFilterMonth: new Date().toISOString().slice(0, 7),
+            projectBoardFilterMonth: new Date().toISOString().slice(0, 7), // For Project Board
             lang: 'vi',
             refreshTimer: null,
-            taskFilters: { search: '', project: '', user: '', month: new Date().toISOString().slice(0, 7) }
+            taskFilters: { search: '', project: '', user: '', month: new Date().toISOString().slice(0, 7) } // Added month for Task List
         };
 
         const DB = {
-            // Hàm lấy tất cả dữ liệu từ một collection
-            async _getAllFromCollection(collectionName) {
-                const snapshot = await firestore.collection(collectionName).get();
-                return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': CONFIG.API_KEY
             },
-
-            // Hàm fetch mới, đọc từ nhiều collection
             async fetch(silent = false) {
-                if (!silent) toggleLoader(true);
+                if(!silent) toggleLoader(true);
                 try {
-                    const [users, tasks, projects, personalTasks] = await Promise.all([
-                        DB._getAllFromCollection('users'),
-                        DB._getAllFromCollection('tasks'),
-                        DB._getAllFromCollection('projects'),
-                        DB._getAllFromCollection('personalTasks')
-                    ]);
-                    STATE.users = users;
-                    STATE.tasks = tasks;
-                    STATE.projects = projects;
-                    STATE.personalTasks = personalTasks;
-
-                    // Tự động tạo admin nếu collection user trống
-                    if (STATE.users.length === 0) {
-                        const adminUser = {id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false};
-                        await DB.saveDoc('users', adminUser.id, adminUser);
-                        STATE.users.push(adminUser);
+                    // Nếu người dùng chưa cấu hình key thật, dùng dữ liệu mẫu local
+                    if (CONFIG.BIN_ID.includes('67b7100')) {
+                        console.warn("Using Local Mock Data because API Key is placeholder");
+                        const local = localStorage.getItem('AMATA_DB');
+                        if (local) {
+                            const data = JSON.parse(local);
+                            STATE.users = data.users || [];
+                            STATE.tasks = data.tasks || [];
+                            STATE.projects = data.projects || [];
+                            STATE.personalTasks = data.personalTasks || [];
+                        } else {
+                            // Init default admin if totally empty
+                            STATE.users = [{id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false}];
+                        }
+                    } else {
+                        // Gọi Online Database
+                        const res = await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.BIN_ID}/latest`, {
+                            method: 'GET',
+                            headers: DB.headers
+                        });
+                        if (!res.ok) throw new Error("Không thể kết nối Database!");
+                        const json = await res.json();
+                        STATE.users = json.record.users || [];
+                        STATE.tasks = json.record.tasks || [];
+                        STATE.projects = json.record.projects || [];
+                        STATE.personalTasks = json.record.personalTasks || [];
+                        
+                        // Auto Restore Admin if deleted
+                        if (!STATE.users.some(u => u.role === 'ADMIN')) {
+                             STATE.users.push({id: "u1", empCode: "AMT00001", name: "Admin System", username: "admin", password: "123", role: "ADMIN", isFirst: false});
+                             await DB.save();
+                        }
                     }
                 } catch (e) {
-                    console.error("Lỗi kết nối Firebase:", e);
-                    if (!silent) Swal.fire('Lỗi kết nối', 'Không thể tải dữ liệu từ Firebase. Vui lòng kiểm tra cấu hình.', 'error');
+                    if(!silent) Swal.fire('Lỗi kết nối', 'Vui lòng kiểm tra cấu hình Bin ID và API Key', 'error');
                 } finally {
-                    if (!silent) toggleLoader(false);
+                    if(!silent) toggleLoader(false);
                 }
             },
-
-            // Hàm lưu một document (thêm mới hoặc cập nhật)
-            async saveDoc(collectionName, docId, data) {
-                // Sao chép data để không thay đổi đối tượng gốc
-                const dataToSave = { ...data };
-                // Xóa trường `id` trước khi lưu vào Firestore
-                if (dataToSave.id) {
-                    delete dataToSave.id;
+            async save() {
+                toggleLoader(true);
+                const payload = { users: STATE.users, tasks: STATE.tasks, projects: STATE.projects, personalTasks: STATE.personalTasks };
+                try {
+                    if (CONFIG.BIN_ID.includes('67b7100')) {
+                        localStorage.setItem('AMATA_DB', JSON.stringify(payload));
+                    } else {
+                        await fetch(`https://api.jsonbin.io/v3/b/${CONFIG.BIN_ID}`, {
+                            method: 'PUT',
+                            headers: DB.headers,
+                            body: JSON.stringify(payload)
+                        });
+                    }
+                } catch (e) {
+                    Swal.fire('Lỗi lưu trữ', 'Không thể lưu dữ liệu lên Online', 'error');
+                } finally {
+                    toggleLoader(false);
                 }
-                await firestore.collection(collectionName).doc(docId).set(dataToSave, { merge: true });
-            },
-
-            // Hàm xóa một document
-            async deleteDoc(collectionName, docId) {
-                await firestore.collection(collectionName).doc(docId).delete();
             }
         };
 
-
         // ==========================================
-        // 3. UTILITIES (Không thay đổi)
+        // 3. UTILITIES
         // ==========================================
 
         const $ = (s) => document.querySelector(s);
         const toggleLoader = (show) => $('#loader').classList.toggle('hidden', !show);
-        const uuid = () => firestore.collection('any').doc().id; // Dùng ID tự sinh của Firebase
+        const uuid = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
         
         const generateEmpCode = () => {
+            // Format AMTxxxxx
             if (STATE.users.length === 0) return 'AMT00001';
             const maxId = STATE.users.reduce((max, u) => {
                 const num = parseInt(u.empCode.replace('AMT', ''));
@@ -195,7 +200,7 @@
             const today = new Date().setHours(0,0,0,0);
             const deadline = new Date(task.deadline).setHours(0,0,0,0);
             if (deadline < today) return 'OVERDUE';
-            return task.status;
+            return task.status; // TODO or IN_PROGRESS
         };
 
         const isDueSoon = (task) => {
@@ -207,12 +212,13 @@
         };
 
         const getAssignees = (task) => {
+            // Normalize assignedTo to always be an array
             const ids = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
             return ids;
         };
 
         // ==========================================
-        // 4. CORE UI RENDERERS (Cập nhật nhỏ)
+        // 4. CORE UI RENDERERS
         // ==========================================
 
         const renderLogin = () => {
@@ -235,11 +241,7 @@
                             <button type="submit" class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold py-2.5 rounded transition">ĐĂNG NHẬP</button>
                         </form>
                         <div class="mt-4 text-center text-xs">
-                             <span class="text-gray-400">Version 4.0 - Firebase Edition</span>
-                        </div>
-                        <!-- CÔNG CỤ DI CHUYỂN DỮ LIỆU - XÓA SAU KHI SỬ DỤNG -->
-                        <div class="mt-6 border-t pt-4 text-center">
-                            <button onclick="runDataMigration()" class="text-xs text-red-500 hover:underline">Chạy công cụ di chuyển dữ liệu (Admin)</button>
+                             <span class="text-gray-400">Version 3.1 - Month Filter</span>
                         </div>
                     </div>
                 </div>
@@ -247,7 +249,7 @@
 
             $('#loginForm').onsubmit = async (e) => {
                 e.preventDefault();
-                await DB.fetch();
+                await DB.fetch(); // Fetch latest data before login
                 const u = $('#username').value;
                 const p = $('#password').value;
                 const user = STATE.users.find(x => x.username === u && x.password === p);
@@ -266,29 +268,28 @@
             };
         };
 
-        const forceChangePassword = async (user) => {
-            const { value: pass } = await Swal.fire({
+        const forceChangePassword = (user) => {
+            Swal.fire({
                 title: 'Đổi mật khẩu lần đầu',
                 text: 'Bạn bắt buộc phải đổi mật khẩu mặc định để tiếp tục.',
                 input: 'password',
                 inputPlaceholder: 'Nhập mật khẩu mới',
                 allowOutsideClick: false,
                 confirmButtonText: 'Cập nhật',
-                preConfirm: (p) => {
-                    if (!p || p.length < 4) return Swal.showValidationMessage('Mật khẩu quá ngắn');
-                    return p;
+                preConfirm: (pass) => {
+                    if (!pass || pass.length < 4) return Swal.showValidationMessage('Mật khẩu quá ngắn');
+                    return pass;
+                }
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    user.password = result.value;
+                    user.isFirst = false;
+                    await DB.save();
+                    Swal.fire('Thành công', 'Vui lòng đăng nhập lại', 'success').then(renderLogin);
                 }
             });
-            if (pass) {
-                user.password = pass;
-                user.isFirst = false;
-                await DB.saveDoc('users', user.id, user);
-                Swal.fire('Thành công', 'Vui lòng đăng nhập lại', 'success').then(renderLogin);
-            }
         };
-        
-        // Các hàm renderApp, navItem, navigate, renderContent không thay đổi.
-        // Dưới đây là các hàm render... và action đã được cập nhật để dùng DB mới
+
         const renderApp = () => {
             const user = STATE.currentUser;
             const isAdmin = user.role === 'ADMIN';
@@ -296,6 +297,7 @@
             // Start Auto Refresh Timer (10 seconds)
             if (STATE.refreshTimer) clearInterval(STATE.refreshTimer);
             STATE.refreshTimer = setInterval(async () => {
+                // Only refresh if NO SweetAlert modal is open (to avoid interrupting typing)
                 if (!Swal.isVisible()) {
                     await DB.fetch(true); // Silent fetch
                     renderContent(STATE.activePage);
@@ -303,6 +305,7 @@
             }, 10000);
 
             $('#app').innerHTML = `
+                <!-- Sidebar -->
                 <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-20 transition-all duration-300" id="sidebar">
                     <div class="h-16 flex items-center justify-center border-b border-slate-700 bg-slate-800">
                         <span class="font-bold text-lg tracking-wider text-blue-400">AMATA WORKFLOW</span>
@@ -332,6 +335,8 @@
                         </button>
                     </div>
                 </aside>
+
+                <!-- Main Content -->
                 <main class="flex-1 flex flex-col overflow-hidden bg-slate-100">
                     <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10">
                         <div class="flex items-center gap-4">
@@ -345,27 +350,46 @@
                             <span class="text-xs font-bold px-3 py-1 ${isAdmin ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'} rounded-full">${user.role}</span>
                         </div>
                     </header>
-                    <div class="flex-1 overflow-auto p-6" id="content"></div>
+                    <div class="flex-1 overflow-auto p-6" id="content">
+                        <!-- Content Area -->
+                    </div>
                 </main>
             `;
             
             lucide.createIcons();
             navigate(STATE.activePage);
         };
-        const navItem = (id, icon, label) => `<button onclick="navigate('${id}')" id="nav-${id}" class="sidebar-link w-full flex items-center gap-3 px-6 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-sm font-medium"><i data-lucide="${icon}" width="18"></i> ${label}</button>`;
+
+        const navItem = (id, icon, label) => `
+            <button onclick="navigate('${id}')" id="nav-${id}" class="sidebar-link w-full flex items-center gap-3 px-6 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition-all text-sm font-medium">
+                <i data-lucide="${icon}" width="18"></i> ${label}
+            </button>
+        `;
+
         const navigate = (pageId) => {
             STATE.activePage = pageId;
             document.querySelectorAll('.sidebar-link').forEach(el => el.classList.remove('active'));
             const activeBtn = document.getElementById(`nav-${pageId}`);
             if(activeBtn) activeBtn.classList.add('active');
-            const titles = { dashboard: 'Dashboard Tổng quan', personal: 'Công việc cá nhân', tasks: 'Quản lý Công việc', projects: 'Dự án (Project Board)', reports: 'Báo cáo & Xuất dữ liệu', users: 'Quản trị Nhân sự', settings: 'Thiết lập Tài khoản' };
+            
+            const titles = {
+                dashboard: 'Dashboard Tổng quan',
+                personal: 'Công việc cá nhân',
+                tasks: 'Quản lý Công việc',
+                projects: 'Dự án (Project Board)',
+                reports: 'Báo cáo & Xuất dữ liệu',
+                users: 'Quản trị Nhân sự',
+                settings: 'Thiết lập Tài khoản'
+            };
             $('#pageTitle').innerText = titles[pageId];
+            
             renderContent(pageId);
         };
+
         const renderContent = (pageId) => {
             const container = $('#content');
-            if(!container) return;
             container.innerHTML = '';
+            
             switch(pageId) {
                 case 'dashboard': renderDashboard(container); break;
                 case 'personal': renderPersonalTasks(container); break;
@@ -379,9 +403,12 @@
         };
 
         // ==========================================
-        // 5. FEATURE MODULES (Unchanged HTML, updated logic in actions)
+        // 5. FEATURE MODULES
         // ==========================================
+
+        /* --- DASHBOARD --- */
         const renderDashboard = (el) => {
+            // Calculate Stats
             const tasks = STATE.tasks;
             const stats = {
                 total: tasks.length,
@@ -390,7 +417,10 @@
                 overdue: tasks.filter(t => getTaskStatus(t) === 'OVERDUE').length,
                 dueSoon: tasks.filter(t => isDueSoon(t)).length
             };
+
+            // Calculate Staff Stats
             const staffStats = STATE.users.filter(u => u.role === 'STAFF').map(u => {
+                // Count tasks where user is Main Assignee (in list) or Collaborator
                 const myTasks = tasks.filter(t => {
                     const assignees = getAssignees(t);
                     return assignees.includes(u.id) || (t.collaborators && t.collaborators.includes(u.id));
@@ -400,6 +430,7 @@
             });
 
             el.innerHTML = `
+                <!-- Summary Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
                     ${statCard('Tổng công việc', stats.total, 'briefcase', 'text-gray-600', 'bg-white')}
                     ${statCard('Đã hoàn thành', stats.completed, 'check-circle', 'text-green-600', 'bg-green-50')}
@@ -407,347 +438,1343 @@
                     ${statCard('Sắp hết hạn', stats.dueSoon, 'alert-triangle', 'text-yellow-600', 'bg-yellow-50')}
                     ${statCard('Đã quá hạn', stats.overdue, 'alert-octagon', 'text-red-600', 'bg-red-50')}
                 </div>
+
+                <!-- Staff Table -->
                 <div class="bg-white rounded-lg shadow p-6">
                     <h3 class="font-bold text-gray-700 mb-4 border-l-4 border-blue-600 pl-3">Tiến độ từng nhân sự</h3>
-                    <div class="overflow-x-auto"><table class="w-full amt-table text-left"><thead><tr><th>Nhân viên</th><th class="text-center">Tổng việc tham gia</th><th class="text-center">Đã hoàn thành</th><th class="text-center">Tỷ lệ</th><th class="text-center">Đang nợ (Quá hạn)</th></tr></thead>
-                    <tbody>${staffStats.map(s => `<tr><td class="font-medium text-slate-700">${s.name}</td><td class="text-center font-bold">${s.total}</td><td class="text-center text-green-600 font-bold">${s.done}</td><td class="text-center"><div class="flex items-center justify-center gap-2"><div class="w-16 bg-gray-200 rounded-full h-1.5"><div class="bg-blue-600 h-1.5 rounded-full" style="width: ${s.total ? (s.done/s.total)*100 : 0}%"></div></div><span class="text-xs">${s.total ? Math.round((s.done/s.total)*100) : 0}%</span></div></td><td class="text-center text-red-600 font-bold">${s.overdue}</td></tr>`).join('')}</tbody></table></div></div>`;
+                    <div class="overflow-x-auto">
+                        <table class="w-full amt-table text-left">
+                            <thead>
+                                <tr>
+                                    <th>Nhân viên</th>
+                                    <th class="text-center">Tổng việc tham gia</th>
+                                    <th class="text-center">Đã hoàn thành</th>
+                                    <th class="text-center">Tỷ lệ</th>
+                                    <th class="text-center">Đang nợ (Quá hạn)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${staffStats.map(s => `
+                                    <tr>
+                                        <td class="font-medium text-slate-700">${s.name}</td>
+                                        <td class="text-center font-bold">${s.total}</td>
+                                        <td class="text-center text-green-600 font-bold">${s.done}</td>
+                                        <td class="text-center">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <div class="w-16 bg-gray-200 rounded-full h-1.5">
+                                                    <div class="bg-blue-600 h-1.5 rounded-full" style="width: ${s.total ? (s.done/s.total)*100 : 0}%"></div>
+                                                </div>
+                                                <span class="text-xs">${s.total ? Math.round((s.done/s.total)*100) : 0}%</span>
+                                            </div>
+                                        </td>
+                                        <td class="text-center text-red-600 font-bold">${s.overdue}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
         };
-        const statCard = (title, count, icon, colorClass, bgClass) => `<div class="${bgClass} rounded-lg p-4 shadow-sm border border-gray-100 flex items-center justify-between"><div><p class="text-xs text-gray-500 font-bold uppercase mb-1">${title}</p><p class="text-2xl font-bold ${colorClass}">${count}</p></div><div class="p-3 rounded-full bg-white/50 ${colorClass}"><i data-lucide="${icon}"></i></div></div>`;
+
+        const statCard = (title, count, icon, colorClass, bgClass) => `
+            <div class="${bgClass} rounded-lg p-4 shadow-sm border border-gray-100 flex items-center justify-between">
+                <div>
+                    <p class="text-xs text-gray-500 font-bold uppercase mb-1">${title}</p>
+                    <p class="text-2xl font-bold ${colorClass}">${count}</p>
+                </div>
+                <div class="p-3 rounded-full bg-white/50 ${colorClass}">
+                    <i data-lucide="${icon}"></i>
+                </div>
+            </div>
+        `;
+
+        /* --- PERSONAL TASKS MODULE --- */
         const renderPersonalTasks = (el) => {
             const myTasks = STATE.personalTasks.filter(t => t.userId === STATE.currentUser.id && t.deadline.startsWith(STATE.personalFilterMonth));
             el.innerHTML = `
                 <div class="flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-4 rounded-lg shadow-sm">
-                    <div class="flex items-center gap-2"><label for="month-filter" class="text-sm font-medium text-gray-600">Lọc theo tháng:</label><input type="month" id="month-filter" value="${STATE.personalFilterMonth}" onchange="STATE.personalFilterMonth = this.value; renderPersonalTasks($('#content'))" class="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500"></div>
-                    <button onclick="openPersonalTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 mt-3 md:mt-0"><i data-lucide="plus"></i> Thêm công việc cá nhân</button>
+                    <div class="flex items-center gap-2">
+                        <label for="month-filter" class="text-sm font-medium text-gray-600">Lọc theo tháng:</label>
+                        <input type="month" id="month-filter" value="${STATE.personalFilterMonth}" onchange="STATE.personalFilterMonth = this.value; renderPersonalTasks($('#content'))" class="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500">
+                    </div>
+                    <button onclick="openPersonalTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 mt-3 md:mt-0">
+                        <i data-lucide="plus"></i> Thêm công việc cá nhân
+                    </button>
                 </div>
-                <div class="bg-white rounded-lg shadow overflow-hidden"><table class="w-full amt-table text-left"><thead><tr><th>Tên công việc</th><th>Deadline</th><th>Trạng thái</th><th>Ghi chú</th><th class="text-center">Thao tác</th></tr></thead>
-                <tbody>${myTasks.length > 0 ? myTasks.map(t => `<tr><td><div class="font-bold">${t.title}</div><div class="text-xs text-gray-500">${t.description || ''}</div></td><td>${t.deadline}</td><td>${CONSTANTS.PERSONAL_STATUS[t.status].label}</td><td class="text-xs italic text-gray-500">${t.notes || '-'}</td><td class="text-center"><button onclick="openPersonalTaskModal('${t.id}')" class="text-amber-600 p-1 hover:bg-amber-50 rounded" title="Sửa"><i data-lucide="edit-3" width="16"></i></button><button onclick="deletePersonalTask('${t.id}')" class="text-red-600 p-1 hover:bg-red-50 rounded" title="Xóa"><i data-lucide="trash-2" width="16"></i></button></td></tr>`).join('') : `<tr><td colspan="5" class="text-center py-8 text-gray-500">Chưa có công việc nào trong tháng này.</td></tr>`}</tbody></table></div>`;
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <table class="w-full amt-table text-left">
+                        <thead>
+                            <tr>
+                                <th>Tên công việc</th>
+                                <th>Deadline</th>
+                                <th>Trạng thái</th>
+                                <th>Ghi chú</th>
+                                <th class="text-center">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${myTasks.length > 0 ? myTasks.map(t => `
+                                <tr>
+                                    <td>
+                                        <div class="font-bold">${t.title}</div>
+                                        <div class="text-xs text-gray-500">${t.description || ''}</div>
+                                    </td>
+                                    <td>${t.deadline}</td>
+                                    <td>${CONSTANTS.PERSONAL_STATUS[t.status].label}</td>
+                                    <td class="text-xs italic text-gray-500">${t.notes || '-'}</td>
+                                    <td class="text-center">
+                                        <button onclick="openPersonalTaskModal('${t.id}')" class="text-amber-600 p-1 hover:bg-amber-50 rounded" title="Sửa"><i data-lucide="edit-3" width="16"></i></button>
+                                        <button onclick="deletePersonalTask('${t.id}')" class="text-red-600 p-1 hover:bg-red-50 rounded" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>
+                                    </td>
+                                </tr>
+                            `).join('') : `<tr><td colspan="5" class="text-center py-8 text-gray-500">Chưa có công việc nào trong tháng này.</td></tr>`}
+                        </tbody>
+                    </table>
+                </div>
+            `;
             lucide.createIcons();
-        };
-        const renderProjectBoard = (el) => {
-            if (!STATE.activeProjectTab && STATE.projects.length > 0) STATE.activeProjectTab = STATE.projects[0].id; else if (!STATE.activeProjectTab) STATE.activeProjectTab = 'ADHOC';
-            const projects = [...STATE.projects, { id: 'ADHOC', name: 'Việc lẻ (Ad-hoc)' }];
-            let tasks = STATE.tasks.filter(t => (STATE.activeProjectTab === 'ADHOC' ? !t.projectId : t.projectId === STATE.activeProjectTab) && (t.deadline && t.deadline.startsWith(STATE.projectBoardFilterMonth)));
-            const total = tasks.length;
-            const completed = tasks.filter(t => t.status === 'COMPLETED').length;
-            const percent = total ? Math.round((completed/total)*100) : 0;
-            const isAdmin = STATE.currentUser.role === 'ADMIN';
-            el.innerHTML = `<div class="flex items-center gap-2 overflow-x-auto pb-2 mb-4 custom-scroll">${projects.map(p => `<button onclick="STATE.activeProjectTab = '${p.id}'; renderProjectBoard($('#content'))" class="whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all border ${STATE.activeProjectTab === p.id ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}">${p.name}</button>`).join('')} ${isAdmin ? `<button onclick="createNewProject()" class="whitespace-nowrap px-3 py-2 rounded-full text-sm font-bold bg-gray-200 text-gray-600 hover:bg-gray-300" title="Thêm dự án mới"><i data-lucide="plus" width="16"></i></button>` : ''}</div>
-                <div class="bg-white rounded-t-xl border border-gray-200 p-4 flex flex-col md:flex-row justify-between items-center gap-4"><div class="flex-1 w-full"><h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">${projects.find(p=>p.id===STATE.activeProjectTab)?.name}<span class="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">${total} tasks</span></h3><div class="w-full max-w-md mt-2 h-2 bg-gray-200 rounded-full overflow-hidden flex"><div class="h-full bg-green-500" style="width: ${percent}%"></div></div></div><div class="flex items-center gap-2 self-stretch"><div><label class="text-[10px] font-bold text-gray-500 uppercase">Lọc theo tháng</label><input type="month" value="${STATE.projectBoardFilterMonth}" onchange="STATE.projectBoardFilterMonth = this.value; renderProjectBoard($('#content'))" class="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 h-9"></div> ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold shadow flex items-center gap-2 self-end h-9"><i data-lucide="plus"></i> Thêm việc</button>` : ''}</div></div>
-                <div class="bg-white border-x border-b border-gray-200 rounded-b-xl overflow-x-auto shadow-sm pb-8 min-h-[500px]"><div class="min-w-[1000px]"><div class="flex bg-slate-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wide"><div class="p-3 w-[350px] border-r border-gray-200">Nội dung công việc</div><div class="p-3 w-[150px] border-r border-gray-200 text-center">Người thực hiện</div><div class="p-3 w-[150px] border-r border-gray-200 text-center">Trạng thái</div><div class="p-3 w-[200px] border-r border-gray-200 text-center">Tiến độ / Hạn chót</div><div class="p-3 flex-1 border-r border-gray-200">Kết quả cập nhật</div><div class="p-3 w-[80px] text-center">Thao tác</div></div>
-                ${tasks.length > 0 ? tasks.map(t => {
-                    const status = getTaskStatus(t); const statusConfig = CONSTANTS.STATUS[status] || CONSTANTS.STATUS.TODO; const assignees = getAssignees(t); const avatars = assignees.map(uid => {const u = STATE.users.find(user => user.id === uid); return `<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold border-2 border-white -ml-2 first:ml-0" title="${u?.name}">${u?.name?.charAt(0)}</div>`; }).join('');
-                    const start = new Date(t.startDate).getTime(); const end = new Date(t.deadline).getTime(); const now = new Date().getTime(); let progress = 0; if (status === 'COMPLETED') progress = 100; else if (now > end) progress = 100; else if (now > start) progress = ((now - start) / (end - start)) * 100;
-                    const isUserRelated = isAdmin || assignees.includes(STATE.currentUser.id) || (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
-                    return `<div class="flex monday-row text-sm items-stretch"><div class="p-3 w-[350px] monday-cell flex items-center gap-2 group"><div class="flex-1 cursor-pointer" onclick="viewTask('${t.id}')"><div class="font-medium text-gray-700 group-hover:text-blue-600 truncate" title="${t.title}">${t.title}</div>${t.notes ? `<div class="text-[10px] text-gray-400 truncate"><i data-lucide="message-square" width="10" class="inline"></i> ${t.notes}</div>` : ''}</div></div><div class="p-2 w-[150px] monday-cell flex items-center justify-center pl-4"><div class="flex items-center justify-center">${avatars}</div></div><div class="w-[150px] monday-cell p-1"><div onclick="${isUserRelated ? `quickStatus('${t.id}')` : ''}" class="${CONSTANTS.STATUS[status].color} monday-status rounded shadow-sm text-xs select-none">${CONSTANTS.STATUS[status].text}</div></div><div class="p-3 w-[200px] monday-cell flex flex-col justify-center"><div class="flex justify-between text-[10px] text-gray-500 mb-1"><span>${t.startDate.slice(5)}</span><span class="${status==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline.slice(5)}</span></div><div class="timeline-bar w-full"><div class="timeline-progress ${status==='OVERDUE'?'bg-red-500':(status==='COMPLETED'?'bg-green-500':'bg-blue-500')}" style="width: ${progress}%"></div></div></div><div class="p-2 flex-1 monday-cell flex items-center">${t.reportResult ? `<div class="text-xs text-gray-600 truncate cursor-pointer hover:bg-gray-100 p-1 rounded w-full" onclick="viewTask('${t.id}')" title="${t.reportResult}">${t.reportResult}</div>` : (isUserRelated ? `<button onclick="viewTask('${t.id}')" class="text-[10px] text-gray-400 hover:text-blue-600 border border-dashed border-gray-300 px-2 py-1 rounded w-full text-left">+ Cập nhật kết quả</button>` : '')}</div><div class="p-2 w-[80px] flex items-center justify-center gap-1">${isAdmin && status !== 'COMPLETED' ? `<button onclick="nudgeUser('${t.id}')" class="text-gray-400 hover:text-amber-500 p-1.5 rounded-full hover:bg-amber-50 transition" title="Đôn đốc / Nhắc nhở"><i data-lucide="bell" width="16"></i></button>` : ''}<button onclick="viewTask('${t.id}')" class="text-gray-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50"><i data-lucide="more-horizontal" width="16"></i></button></div></div>`;
-                }).join('') : `<div class="flex flex-col items-center justify-center py-12 text-gray-400"><i data-lucide="clipboard" width="48" class="mb-2 opacity-20"></i><p>Không có công việc nào trong tháng này.</p></div>`}</div></div>`;
-            lucide.createIcons();
-        };
-        const renderTasks = (el) => {
-            const isAdmin = STATE.currentUser.role === 'ADMIN'; const filters = STATE.taskFilters;
-            let tasks = STATE.tasks.filter(t => isAdmin || getAssignees(t).includes(STATE.currentUser.id) || (t.collaborators && t.collaborators.includes(STATE.currentUser.id)));
-            if (filters.search) tasks = tasks.filter(t => t.title.toLowerCase().includes(filters.search.toLowerCase()));
-            if (filters.project) tasks = tasks.filter(t => (filters.project === 'ADHOC' ? !t.projectId : t.projectId === filters.project));
-            if (isAdmin && filters.user) tasks = tasks.filter(t => getAssignees(t).includes(filters.user));
-            if (filters.month) tasks = tasks.filter(t => t.deadline && t.deadline.startsWith(filters.month));
-            const projectOptions = `<option value="">-- Tất cả Dự án --</option><option value="ADHOC" ${filters.project==='ADHOC'?'selected':''}>Công việc Lẻ (Ad-hoc)</option>` + STATE.projects.map(p => `<option value="${p.id}" ${filters.project===p.id?'selected':''}>${p.name}</option>`).join('');
-            const userOptions = `<option value="">-- Tất cả Nhân sự --</option>` + STATE.users.filter(u => u.role === 'STAFF').map(u => `<option value="${u.id}" ${filters.user===u.id?'selected':''}>${u.name}</option>`).join('');
-            el.innerHTML = `<div class="flex flex-col md:flex-row justify-between mb-4 gap-3"><div class="flex flex-col md:flex-row gap-2 flex-1 items-end"><div><label class="text-[10px] font-bold text-gray-500 uppercase">Tìm kiếm</label><div class="relative w-full md:w-56"><span class="absolute inset-y-0 left-0 flex items-center pl-2 text-gray-400"><i data-lucide="search" width="16"></i></span><input type="text" placeholder="Tên công việc..." class="border p-2 pl-8 rounded text-sm w-full outline-none focus:ring-1 focus:ring-blue-500 h-10" value="${filters.search}" onkeyup="setTaskFilter('search', this.value)"></div></div><div><label class="text-[10px] font-bold text-gray-500 uppercase">Dự án</label><select class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" onchange="setTaskFilter('project', this.value)">${projectOptions}</select></div>${isAdmin ? `<div><label class="text-[10px] font-bold text-gray-500 uppercase">Nhân sự</label><select class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" onchange="setTaskFilter('user', this.value)">${userOptions}</select></div>` : ''}<div><label class="text-[10px] font-bold text-gray-500 uppercase">Tháng</label><input type="month" class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" value="${filters.month}" onchange="setTaskFilter('month', this.value)"></div></div> ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 whitespace-nowrap self-end h-10"><i data-lucide="plus"></i> Giao việc mới</button>` : ''}</div>
-                <div class="bg-white rounded-lg shadow overflow-hidden"><table class="w-full amt-table text-left" id="taskTable"><thead><tr><th>Loại</th><th>Tiêu đề / Dự án</th><th>Chủ trì (Nhóm)</th><th>Phối hợp</th><th>Ngày giao</th><th>Hạn chót</th><th>Trạng thái</th><th class="text-center">Thao tác</th></tr></thead>
-                <tbody>${tasks.length > 0 ? tasks.map(t => { const stKey = getTaskStatus(t); const st = CONSTANTS.STATUS[stKey] || CONSTANTS.STATUS.TODO; const assignees = getAssignees(t); const assigneeNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', '); const collabCount = (t.collaborators || []).length; const pj = t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : 'Việc lẻ'; return `<tr><td><span class="text-[10px] uppercase font-bold px-2 py-1 rounded border ${t.projectId ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-600 border-gray-100'}">${t.projectId ? 'Dự án' : 'Lẻ'}</span></td><td><div class="font-bold text-slate-700 hover:text-blue-600 cursor-pointer" onclick="viewTask('${t.id}')">${t.title}</div><div class="text-xs text-gray-500 truncate max-w-[200px]">${pj}</div>${t.extensionStatus === 'PENDING' ? '<span class="text-[10px] bg-yellow-100 text-yellow-700 px-1 rounded ml-1">Xin gia hạn</span>' : ''}</td><td class="font-medium text-blue-900 truncate max-w-[150px]" title="${assigneeNames}">${assigneeNames}</td><td class="text-xs text-gray-500">${collabCount > 0 ? `+${collabCount} nhân sự` : '-'}</td><td>${t.startDate}</td><td><span class="${getTaskStatus(t)==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline}</span></td><td><span class="text-xs font-bold px-2 py-1 rounded bg-opacity-20 ${st.color.replace('bg-', 'text-').replace('text-white','')} ${st.color.replace('bg-', 'bg-').replace('text-white','').replace('500','100')}">${st.label}</span></td><td class="text-center"><button onclick="viewTask('${t.id}')" class="text-blue-600 hover:bg-blue-50 p-1 rounded" title="Xem chi tiết"><i data-lucide="eye" width="16"></i></button>${isAdmin ? `<button onclick="editTask('${t.id}')" class="text-amber-600 hover:bg-amber-50 p-1 rounded" title="Sửa"><i data-lucide="edit-3" width="16"></i></button><button onclick="deleteTask('${t.id}')" class="text-red-600 hover:bg-red-50 p-1 rounded" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>` : ''}</td></tr>`}).join('') : `<tr><td colspan="8" class="text-center py-8 text-gray-500">Không tìm thấy công việc phù hợp</td></tr>`}</tbody></table></div>`;
-            lucide.createIcons();
-        };
-        const renderUsers = (el) => {
-            if (STATE.currentUser.role !== 'ADMIN') return el.innerHTML = '<p class="text-red-500">Truy cập bị từ chối</p>';
-            el.innerHTML = `<div class="flex justify-end mb-4"><button onclick="openUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2"><i data-lucide="user-plus"></i> Thêm Nhân sự mới</button></div>
-                <div class="bg-white rounded-lg shadow overflow-hidden"><table class="w-full amt-table text-left"><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Username</th><th>Đơn vị</th><th>Vai trò</th><th class="text-center">Thao tác</th></tr></thead>
-                <tbody>${STATE.users.map(u => `<tr><td class="font-mono text-xs">${u.empCode}</td><td class="font-bold">${u.name}</td><td>${u.username}</td><td>${u.unit || '-'}</td><td><span class="px-2 py-0.5 rounded text-xs font-bold ${u.role==='ADMIN'?'bg-purple-100 text-purple-600':'bg-green-100 text-green-600'}">${u.role}</span></td><td class="text-center"><button onclick="resetPass('${u.id}')" class="text-amber-600 p-1 hover:bg-amber-50" title="Reset Password"><i data-lucide="key" width="16"></i></button>${u.role !== 'ADMIN' || STATE.users.filter(x=>x.role==='ADMIN').length > 1 ? `<button onclick="deleteUser('${u.id}')" class="text-red-600 p-1 hover:bg-red-50" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
-            lucide.createIcons();
-        };
-        const renderReports = (el) => {
-            const data = STATE.tasks.map(t => {
-                const assignees = getAssignees(t); const mainNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', '); const collabs = (t.collaborators || []).map(cid => STATE.users.find(x=>x.id===cid)?.name).join(', '); const st = getTaskStatus(t);
-                return { "Mã việc": t.id, "Dự án": t.projectId ? (STATE.projects.find(p=>p.id===t.projectId)?.name) : "Việc lẻ", "Đầu việc": t.title, "Nội dung": t.description || '', "Chủ trì": mainNames, "Phối hợp": collabs, "Ngày giao": t.startDate, "Hạn chót": t.deadline, "Trạng thái": CONSTANTS.STATUS[st]?.label || st, "Kết quả TH": t.reportResult || '', "Vướng mắc": t.reportIssues || '', "Ghi chú của NV": t.reportNotes || '' };
-            });
-            el.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6"><div class="bg-white p-6 rounded shadow flex flex-col items-center justify-center text-center"><i data-lucide="file-spreadsheet" class="text-green-600 w-12 h-12 mb-3"></i><h3 class="font-bold text-lg mb-2">Báo cáo chi tiết Excel</h3><p class="text-sm text-gray-500 mb-4">Xuất toàn bộ danh sách công việc và trạng thái chi tiết ra file Excel.</p><button onclick='downloadExcel(${JSON.stringify(data)})' class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700">Tải về (.xlsx)</button></div><div class="bg-white p-6 rounded shadow flex flex-col items-center justify-center text-center"><i data-lucide="pie-chart" class="text-blue-600 w-12 h-12 mb-3"></i><h3 class="font-bold text-lg mb-2">Báo cáo Tổng hợp</h3><p class="text-sm text-gray-500 mb-4">Xem thống kê hiệu suất làm việc theo Nhân sự hoặc theo Dự án.</p><button onclick="openSummaryReport()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Xem ngay</button></div></div>
-                <div class="bg-white rounded shadow p-4"><h3 class="font-bold mb-4">Xem nhanh danh sách</h3><div class="overflow-auto max-h-96"><table class="w-full amt-table text-left"><thead class="sticky top-0 z-10 shadow-sm"><tr><th>Đầu việc</th><th>Chủ trì</th><th>Hạn chót</th><th>Trạng thái</th></tr></thead>
-                <tbody>${data.map(r => `<tr><td>${r["Đầu việc"]}</td><td>${r["Chủ trì"]}</td><td>${r["Hạn chót"]}</td><td>${r["Trạng thái"]}</td></tr>`).join('')}</tbody></table></div></div>`;
-            lucide.createIcons();
-        };
-        const renderSettings = (el) => {
-            const u = STATE.currentUser;
-            el.innerHTML = `<div class="max-w-2xl bg-white rounded shadow p-8 mx-auto"><h3 class="text-lg font-bold border-b pb-4 mb-6">Thông tin cá nhân</h3><form id="profileForm" class="space-y-4"><div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-bold text-gray-700 mb-1">Họ và tên</label><input type="text" id="pName" class="w-full border p-2 rounded" value="${u.name}" ${u.role!=='ADMIN'?'disabled':''}></div><div><label class="block text-sm font-bold text-gray-700 mb-1">Số điện thoại</label><input type="text" id="pPhone" class="w-full border p-2 rounded" value="${u.phone||''}"></div><div><label class="block text-sm font-bold text-gray-700 mb-1">Email</label><input type="email" id="pEmail" class="w-full border p-2 rounded" value="${u.email||''}"></div><div><label class="block text-sm font-bold text-gray-700 mb-1">Đơn vị / Phòng ban</label><input type="text" id="pUnit" class="w-full border p-2 rounded" value="${u.unit||''}"></div></div><div class="flex justify-end pt-4"><button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded font-bold">Lưu thay đổi</button></div></form>
-                <h3 class="text-lg font-bold border-b pb-4 mb-6 mt-10">Đổi mật khẩu</h3><form id="passForm" class="space-y-4"><div><label class="block text-sm font-bold text-gray-700 mb-1">Mật khẩu mới</label><input type="password" id="newPass" class="w-full border p-2 rounded"></div><div class="flex justify-end pt-4"><button type="submit" class="bg-gray-800 text-white px-6 py-2 rounded font-bold">Cập nhật Mật khẩu</button></div></form></div>`;
-
-            $('#profileForm').onsubmit = async (e) => {
-                e.preventDefault();
-                u.name = $('#pName').value; u.phone = $('#pPhone').value; u.email = $('#pEmail').value; u.unit = $('#pUnit').value;
-                await DB.saveDoc('users', u.id, u);
-                Swal.fire('Thành công', 'Thông tin đã được cập nhật', 'success'); renderApp();
-            };
-            $('#passForm').onsubmit = async (e) => {
-                e.preventDefault();
-                const newP = $('#newPass').value;
-                if(newP.length < 4) return Swal.fire('Lỗi', 'Mật khẩu quá ngắn', 'warning');
-                u.password = newP;
-                await DB.saveDoc('users', u.id, u);
-                Swal.fire('Thành công', 'Mật khẩu đã được thay đổi', 'success');
-            };
         };
 
-        // ==========================================
-        // 6. ACTIONS & MODALS (UPDATED FOR FIREBASE)
-        // ==========================================
-        
-        window.setTaskFilter = (key, val) => { STATE.taskFilters[key] = val; renderTasks($('#content')); };
-        window.manualRefresh = async () => {
-            await DB.fetch(); renderContent(STATE.activePage);
-            Swal.mixin({toast: true,position: 'top-end',showConfirmButton: false,timer: 2000,timerProgressBar: true}).fire({ icon: 'success', title: 'Đã cập nhật dữ liệu' });
-        };
-        
         window.openPersonalTaskModal = (editId = null) => {
             const task = editId ? STATE.personalTasks.find(t => t.id === editId) : null;
             Swal.fire({
-                title: editId ? 'Sửa công việc cá nhân' : 'Thêm công việc mới', width: '600px',
-                html: `<div class="text-left space-y-4 pt-4"><div><label class="block text-xs font-bold text-gray-500 uppercase mb-1">Tên công việc</label><input id="p-title" class="swal2-input m-0 w-full" placeholder="Nhập tên công việc" value="${task?.title || ''}"></div><div><label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nội dung thực hiện</label><textarea id="p-desc" class="swal2-textarea m-0 w-full h-24" placeholder="Mô tả chi tiết...">${task?.description || ''}</textarea></div><div><label class="block text-xs font-bold text-gray-500 uppercase mb-1">Thời hạn hoàn thành</label><input type="date" id="p-deadline" class="swal2-input m-0 w-full" value="${task?.deadline || ''}"></div><div><label class="block text-xs font-bold text-gray-500 uppercase mb-1">Trạng thái</label><div class="flex justify-around items-center pt-2"><label><input type="radio" name="p-status" value="UNPROCESSED" ${task?.status === 'UNPROCESSED' || !task ? 'checked' : ''}> Chưa xử lý</label><label><input type="radio" name="p-status" value="PROCESSING" ${task?.status === 'PROCESSING' ? 'checked' : ''}> Đang xử lý</label><label><input type="radio" name="p-status" value="COMPLETED" ${task?.status === 'COMPLETED' ? 'checked' : ''}> Đã hoàn thành</label></div></div><div><label class="block text-xs font-bold text-gray-500 uppercase mb-1">Ghi chú</label><input id="p-notes" class="swal2-input m-0 w-full" placeholder="Thêm ghi chú..." value="${task?.notes || ''}"></div></div>`,
-                showCancelButton: true, confirmButtonText: 'Lưu', cancelButtonText: 'Hủy',
+                title: editId ? 'Sửa công việc cá nhân' : 'Thêm công việc mới',
+                width: '600px',
+                html: `
+                    <div class="text-left space-y-4 pt-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Tên công việc</label>
+                            <input id="p-title" class="swal2-input m-0 w-full" placeholder="Nhập tên công việc" value="${task?.title || ''}">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nội dung thực hiện</label>
+                            <textarea id="p-desc" class="swal2-textarea m-0 w-full h-24" placeholder="Mô tả chi tiết...">${task?.description || ''}</textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Thời hạn hoàn thành</label>
+                            <input type="date" id="p-deadline" class="swal2-input m-0 w-full" value="${task?.deadline || ''}">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Trạng thái</label>
+                            <div class="flex justify-around items-center pt-2">
+                                <label><input type="radio" name="p-status" value="UNPROCESSED" ${task?.status === 'UNPROCESSED' || !task ? 'checked' : ''}> Chưa xử lý</label>
+                                <label><input type="radio" name="p-status" value="PROCESSING" ${task?.status === 'PROCESSING' ? 'checked' : ''}> Đang xử lý</label>
+                                <label><input type="radio" name="p-status" value="COMPLETED" ${task?.status === 'COMPLETED' ? 'checked' : ''}> Đã hoàn thành</label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Ghi chú</label>
+                            <input id="p-notes" class="swal2-input m-0 w-full" placeholder="Thêm ghi chú..." value="${task?.notes || ''}">
+                        </div>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Lưu',
+                cancelButtonText: 'Hủy',
                 preConfirm: () => {
-                    const title = document.getElementById('p-title').value; const deadline = document.getElementById('p-deadline').value;
-                    if (!title || !deadline) { Swal.showValidationMessage('Vui lòng nhập Tên công việc và Thời hạn'); return false; }
-                    return { title: title, description: document.getElementById('p-desc').value, deadline: deadline, status: document.querySelector('input[name="p-status"]:checked').value, notes: document.getElementById('p-notes').value }
+                    const title = document.getElementById('p-title').value;
+                    const deadline = document.getElementById('p-deadline').value;
+                    if (!title || !deadline) {
+                        Swal.showValidationMessage('Vui lòng nhập Tên công việc và Thời hạn');
+                        return false;
+                    }
+                    return {
+                        title: title,
+                        description: document.getElementById('p-desc').value,
+                        deadline: deadline,
+                        status: document.querySelector('input[name="p-status"]:checked').value,
+                        notes: document.getElementById('p-notes').value
+                    }
                 }
             }).then(async (result) => {
                 if (result.isConfirmed) {
                     const data = result.value;
-                    const taskId = editId || uuid();
-                    const taskData = { ...(editId ? task : {}), ...data, id: taskId, userId: STATE.currentUser.id };
-                    await DB.saveDoc('personalTasks', taskId, taskData);
-                    await DB.fetch(true); // silent refresh
+                    if (editId) {
+                        const taskIndex = STATE.personalTasks.findIndex(t => t.id === editId);
+                        if (taskIndex > -1) {
+                            STATE.personalTasks[taskIndex] = { ...STATE.personalTasks[taskIndex], ...data };
+                        }
+                    } else {
+                        const newTask = {
+                            id: uuid(),
+                            userId: STATE.currentUser.id,
+                            ...data
+                        };
+                        STATE.personalTasks.push(newTask);
+                    }
+                    await DB.save();
                     renderPersonalTasks(document.getElementById('content'));
                     Swal.fire('Đã lưu!', 'Công việc cá nhân của bạn đã được cập nhật.', 'success');
                 }
             });
         };
+
         window.deletePersonalTask = (id) => {
-            Swal.fire({title: 'Bạn chắc chắn muốn xóa?', text: "Hành động này không thể hoàn tác!", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Xóa ngay', cancelButtonText: 'Hủy' }).then(async (result) => {
+            Swal.fire({
+                title: 'Bạn chắc chắn muốn xóa?',
+                text: "Hành động này không thể hoàn tác!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Xóa ngay',
+                cancelButtonText: 'Hủy'
+            }).then(async (result) => {
                 if (result.isConfirmed) {
-                    await DB.deleteDoc('personalTasks', id);
-                    await DB.fetch(true);
+                    STATE.personalTasks = STATE.personalTasks.filter(t => t.id !== id);
+                    await DB.save();
                     renderPersonalTasks(document.getElementById('content'));
                     Swal.fire('Đã xóa!', 'Công việc đã được xóa.', 'success');
                 }
             });
         };
+
+        /* --- PROJECT BOARD (MONDAY.COM STYLE) --- */
+        const renderProjectBoard = (el) => {
+            // Default to first project if none selected
+            if (!STATE.activeProjectTab && STATE.projects.length > 0) {
+                STATE.activeProjectTab = STATE.projects[0].id;
+            } else if (!STATE.activeProjectTab) {
+                STATE.activeProjectTab = 'ADHOC'; // Default to Adhoc if no projects
+            }
+
+            const projects = [...STATE.projects, { id: 'ADHOC', name: 'Việc lẻ (Ad-hoc)' }];
+            
+            // Filter Tasks by project first
+            let tasks = STATE.tasks.filter(t => {
+                if (STATE.activeProjectTab === 'ADHOC') return !t.projectId;
+                return t.projectId === STATE.activeProjectTab;
+            });
+            
+            // Then apply month filter
+            tasks = tasks.filter(t => t.deadline && t.deadline.startsWith(STATE.projectBoardFilterMonth));
+
+
+            const total = tasks.length;
+            const completed = tasks.filter(t => t.status === 'COMPLETED').length;
+            const percent = total ? Math.round((completed/total)*100) : 0;
+            const isAdmin = STATE.currentUser.role === 'ADMIN';
+
+            el.innerHTML = `
+                <!-- Project Tabs -->
+                <div class="flex items-center gap-2 overflow-x-auto pb-2 mb-4 custom-scroll">
+                    ${projects.map(p => `
+                        <button onclick="STATE.activeProjectTab = '${p.id}'; renderProjectBoard($('#content'))" 
+                            class="whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all border ${STATE.activeProjectTab === p.id ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}">
+                            ${p.name}
+                        </button>
+                    `).join('')}
+                    ${isAdmin ? `<button onclick="createNewProject()" class="whitespace-nowrap px-3 py-2 rounded-full text-sm font-bold bg-gray-200 text-gray-600 hover:bg-gray-300" title="Thêm dự án mới"><i data-lucide="plus" width="16"></i></button>` : ''}
+                </div>
+
+                <!-- Board Header -->
+                <div class="bg-white rounded-t-xl border border-gray-200 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div class="flex-1 w-full">
+                        <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                            ${projects.find(p=>p.id===STATE.activeProjectTab)?.name}
+                            <span class="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">${total} tasks</span>
+                        </h3>
+                        <div class="w-full max-w-md mt-2 h-2 bg-gray-200 rounded-full overflow-hidden flex">
+                            <div class="h-full bg-green-500" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
+                     <div class="flex items-center gap-2 self-stretch">
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Lọc theo tháng</label>
+                            <input type="month" value="${STATE.projectBoardFilterMonth}" onchange="STATE.projectBoardFilterMonth = this.value; renderProjectBoard($('#content'))" class="border p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 h-9">
+                        </div>
+                        ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold shadow flex items-center gap-2 self-end h-9"><i data-lucide="plus"></i> Thêm việc</button>` : ''}
+                    </div>
+                </div>
+
+                <!-- Monday Style Table -->
+                <div class="bg-white border-x border-b border-gray-200 rounded-b-xl overflow-x-auto shadow-sm pb-8 min-h-[500px]">
+                    <div class="min-w-[1000px]">
+                        <!-- Header Row -->
+                        <div class="flex bg-slate-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                            <div class="p-3 w-[350px] border-r border-gray-200">Nội dung công việc</div>
+                            <div class="p-3 w-[150px] border-r border-gray-200 text-center">Người thực hiện</div>
+                            <div class="p-3 w-[150px] border-r border-gray-200 text-center">Trạng thái</div>
+                            <div class="p-3 w-[200px] border-r border-gray-200 text-center">Tiến độ / Hạn chót</div>
+                            <div class="p-3 flex-1 border-r border-gray-200">Kết quả cập nhật</div>
+                            <div class="p-3 w-[80px] text-center">Thao tác</div>
+                        </div>
+
+                        <!-- Data Rows -->
+                        ${tasks.length > 0 ? tasks.map(t => {
+                            const status = getTaskStatus(t); // returns 'COMPLETED', 'OVERDUE', etc.
+                            const statusConfig = CONSTANTS.STATUS[status] || CONSTANTS.STATUS.TODO;
+                            const assignees = getAssignees(t);
+                            const avatars = assignees.map(uid => {
+                                const u = STATE.users.find(user => user.id === uid);
+                                return `<div class="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold border-2 border-white -ml-2 first:ml-0" title="${u?.name}">${u?.name?.charAt(0)}</div>`;
+                            }).join('');
+                            
+                            // Timeline calc
+                            const start = new Date(t.startDate).getTime();
+                            const end = new Date(t.deadline).getTime();
+                            const now = new Date().getTime();
+                            let progress = 0;
+                            if (status === 'COMPLETED') progress = 100;
+                            else if (now > end) progress = 100;
+                            else if (now > start) progress = ((now - start) / (end - start)) * 100;
+
+                            const isUserRelated = isAdmin || assignees.includes(STATE.currentUser.id) || (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
+
+                            return `
+                                <div class="flex monday-row text-sm items-stretch">
+                                    <!-- Title -->
+                                    <div class="p-3 w-[350px] monday-cell flex items-center gap-2 group">
+                                        <div class="flex-1 cursor-pointer" onclick="viewTask('${t.id}')">
+                                            <div class="font-medium text-gray-700 group-hover:text-blue-600 truncate" title="${t.title}">${t.title}</div>
+                                            ${t.notes ? `<div class="text-[10px] text-gray-400 truncate"><i data-lucide="message-square" width="10" class="inline"></i> ${t.notes}</div>` : ''}
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Assignee -->
+                                    <div class="p-2 w-[150px] monday-cell flex items-center justify-center pl-4">
+                                        <div class="flex items-center justify-center">${avatars}</div>
+                                    </div>
+
+                                    <!-- Status (Clickable) -->
+                                    <div class="w-[150px] monday-cell p-1">
+                                        <div onclick="${isUserRelated ? `quickStatus('${t.id}')` : ''}" class="${CONSTANTS.STATUS[status].color} monday-status rounded shadow-sm text-xs select-none">
+                                            ${CONSTANTS.STATUS[status].text}
+                                        </div>
+                                    </div>
+
+                                    <!-- Timeline -->
+                                    <div class="p-3 w-[200px] monday-cell flex flex-col justify-center">
+                                        <div class="flex justify-between text-[10px] text-gray-500 mb-1">
+                                            <span>${t.startDate.slice(5)}</span>
+                                            <span class="${status==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline.slice(5)}</span>
+                                        </div>
+                                        <div class="timeline-bar w-full">
+                                            <div class="timeline-progress ${status==='OVERDUE'?'bg-red-500':(status==='COMPLETED'?'bg-green-500':'bg-blue-500')}" style="width: ${progress}%"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Result (Quick View/Edit) -->
+                                    <div class="p-2 flex-1 monday-cell flex items-center">
+                                        ${t.reportResult ? 
+                                            `<div class="text-xs text-gray-600 truncate cursor-pointer hover:bg-gray-100 p-1 rounded w-full" onclick="viewTask('${t.id}')" title="${t.reportResult}">${t.reportResult}</div>` : 
+                                            (isUserRelated ? `<button onclick="viewTask('${t.id}')" class="text-[10px] text-gray-400 hover:text-blue-600 border border-dashed border-gray-300 px-2 py-1 rounded w-full text-left">+ Cập nhật kết quả</button>` : '')
+                                        }
+                                    </div>
+
+                                    <!-- Actions -->
+                                    <div class="p-2 w-[80px] flex items-center justify-center gap-1">
+                                        ${isAdmin && status !== 'COMPLETED' ? 
+                                            `<button onclick="nudgeUser('${t.id}')" class="text-gray-400 hover:text-amber-500 p-1.5 rounded-full hover:bg-amber-50 transition" title="Đôn đốc / Nhắc nhở"><i data-lucide="bell" width="16"></i></button>` : ''
+                                        }
+                                        <button onclick="viewTask('${t.id}')" class="text-gray-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50"><i data-lucide="more-horizontal" width="16"></i></button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('') : `
+                            <div class="flex flex-col items-center justify-center py-12 text-gray-400">
+                                <i data-lucide="clipboard" width="48" class="mb-2 opacity-20"></i>
+                                <p>Không có công việc nào trong tháng này.</p>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
         window.createNewProject = async () => {
-             const { value: text } = await Swal.fire({ title: 'Tạo Dự án mới', input: 'text', inputPlaceholder: 'Nhập tên dự án...', showCancelButton: true });
+             const { value: text } = await Swal.fire({
+                title: 'Tạo Dự án mới',
+                input: 'text',
+                inputPlaceholder: 'Nhập tên dự án...',
+                showCancelButton: true
+            });
             if (text) {
-                const newProject = { id: uuid(), name: text };
-                await DB.saveDoc('projects', newProject.id, newProject);
-                STATE.activeProjectTab = newProject.id;
-                await DB.fetch(true);
+                const newId = uuid();
+                STATE.projects.push({ id: newId, name: text });
+                STATE.activeProjectTab = newId;
+                await DB.save();
                 renderProjectBoard($('#content'));
                 Swal.fire('Thành công', 'Đã tạo dự án mới', 'success');
             }
         };
+
         window.quickStatus = async (taskId) => {
-            const { value: status } = await Swal.fire({ title: 'Cập nhật trạng thái nhanh', input: 'radio', inputOptions: {'TODO': 'Chưa bắt đầu (Xám)', 'IN_PROGRESS': 'Đang thực hiện (Xanh dương)', 'STUCK': 'Vướng mắc (Cam)', 'COMPLETED': 'Hoàn thành (Xanh lá)'}, inputValue: STATE.tasks.find(t=>t.id===taskId).status, showCancelButton: true, });
+            // Monday style quick picker
+            const inputOptions = {
+                'TODO': 'Chưa bắt đầu (Xám)',
+                'IN_PROGRESS': 'Đang thực hiện (Xanh dương)',
+                'STUCK': 'Vướng mắc (Cam)',
+                'COMPLETED': 'Hoàn thành (Xanh lá)'
+            };
+            
+            const { value: status } = await Swal.fire({
+                title: 'Cập nhật trạng thái nhanh',
+                input: 'radio',
+                inputOptions: inputOptions,
+                inputValue: STATE.tasks.find(t=>t.id===taskId).status,
+                showCancelButton: true,
+            });
+
             if (status) {
                 const t = STATE.tasks.find(t=>t.id===taskId);
                 t.status = status;
-                await DB.saveDoc('tasks', taskId, t);
-                renderProjectBoard($('#content'));
-                Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500, timerProgressBar: true }).fire({ icon: 'success', title: 'Đã cập nhật trạng thái' });
+                await DB.save();
+                // Re-render only the board to be fast
+                renderProjectBoard($('#content')); 
+                
+                // Show mini toast
+                const Toast = Swal.mixin({
+                    toast: true, position: 'top-end', showConfirmButton: false, timer: 1500, timerProgressBar: true
+                });
+                Toast.fire({ icon: 'success', title: 'Đã cập nhật trạng thái' });
             }
         };
+
         window.nudgeUser = (taskId) => {
-            const t = STATE.tasks.find(t=>t.id===taskId); const assignees = getAssignees(t).map(uid => STATE.users.find(u=>u.id===uid)?.name).join(', ');
-            Swal.fire({title: 'Gửi nhắc nhở?', text: `Gửi thông báo đôn đốc đến: ${assignees}`, icon: 'info', showCancelButton: true, confirmButtonText: 'Gửi ngay' }).then((r) => { if(r.isConfirmed) Swal.fire('Đã gửi!', 'Nhân sự sẽ nhận được thông báo đôn đốc.', 'success'); });
+            const t = STATE.tasks.find(t=>t.id===taskId);
+            const assignees = getAssignees(t).map(uid => STATE.users.find(u=>u.id===uid)?.name).join(', ');
+            
+            // In a real app, this would send an email/notification API
+            Swal.fire({
+                title: 'Gửi nhắc nhở?',
+                text: `Gửi thông báo đôn đốc đến: ${assignees}`,
+                icon: 'info',
+                showCancelButton: true,
+                confirmButtonText: 'Gửi ngay'
+            }).then((r) => {
+                if(r.isConfirmed) {
+                    Swal.fire('Đã gửi!', 'Nhân sự sẽ nhận được thông báo đôn đốc.', 'success');
+                }
+            });
         };
+
+        /* --- TASK MANAGEMENT --- */
+        const renderTasks = (el) => {
+            const isAdmin = STATE.currentUser.role === 'ADMIN';
+            const filters = STATE.taskFilters;
+
+            // --- FILTER LOGIC ---
+            // 1. Filter by Visibility (Permission)
+            let tasks = STATE.tasks.filter(t => {
+                const assignees = getAssignees(t);
+                return isAdmin || 
+                assignees.includes(STATE.currentUser.id) || 
+                (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
+            });
+
+            // 2. Filter by Search Text
+            if (filters.search) {
+                const lowerK = filters.search.toLowerCase();
+                tasks = tasks.filter(t => t.title.toLowerCase().includes(lowerK));
+            }
+
+            // 3. Filter by Project
+            if (filters.project) {
+                if (filters.project === 'ADHOC') {
+                    tasks = tasks.filter(t => !t.projectId);
+                } else {
+                    tasks = tasks.filter(t => t.projectId === filters.project);
+                }
+            }
+
+            // 4. Filter by Assignee (Admin only)
+            if (isAdmin && filters.user) {
+                tasks = tasks.filter(t => {
+                    const assignees = getAssignees(t);
+                    return assignees.includes(filters.user);
+                });
+            }
+
+            // 5. Filter by Month
+            if (filters.month) {
+                tasks = tasks.filter(t => t.deadline && t.deadline.startsWith(filters.month));
+            }
+            
+            // Generate Project Options
+            const projectOptions = `<option value="">-- Tất cả Dự án --</option>
+                                    <option value="ADHOC" ${filters.project==='ADHOC'?'selected':''}>Công việc Lẻ (Ad-hoc)</option>` + 
+                                    STATE.projects.map(p => `<option value="${p.id}" ${filters.project===p.id?'selected':''}>${p.name}</option>`).join('');
+
+            // Generate User Options (Admin only)
+            const userOptions = `<option value="">-- Tất cả Nhân sự --</option>` + 
+                                STATE.users.filter(u => u.role === 'STAFF').map(u => `<option value="${u.id}" ${filters.user===u.id?'selected':''}>${u.name}</option>`).join('');
+
+            el.innerHTML = `
+                <div class="flex flex-col md:flex-row justify-between mb-4 gap-3">
+                    <div class="flex flex-col md:flex-row gap-2 flex-1 items-end">
+                        <!-- Search Box -->
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Tìm kiếm</label>
+                            <div class="relative w-full md:w-56">
+                                <span class="absolute inset-y-0 left-0 flex items-center pl-2 text-gray-400">
+                                    <i data-lucide="search" width="16"></i>
+                                </span>
+                                <input type="text" placeholder="Tên công việc..." class="border p-2 pl-8 rounded text-sm w-full outline-none focus:ring-1 focus:ring-blue-500 h-10" value="${filters.search}" onkeyup="setTaskFilter('search', this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Filters -->
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Dự án</label>
+                            <select class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" onchange="setTaskFilter('project', this.value)">
+                                ${projectOptions}
+                            </select>
+                        </div>
+                        ${isAdmin ? `
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Nhân sự</label>
+                            <select class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" onchange="setTaskFilter('user', this.value)">
+                                ${userOptions}
+                            </select>
+                        </div>
+                        ` : ''}
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Tháng</label>
+                            <input type="month" class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" value="${filters.month}" onchange="setTaskFilter('month', this.value)">
+                        </div>
+                    </div>
+
+                    <!-- Add Button -->
+                    ${isAdmin ? `<button onclick="openTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2 whitespace-nowrap self-end h-10"><i data-lucide="plus"></i> Giao việc mới</button>` : ''}
+                </div>
+
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <table class="w-full amt-table text-left" id="taskTable">
+                        <thead>
+                            <tr>
+                                <th>Loại</th>
+                                <th>Tiêu đề / Dự án</th>
+                                <th>Chủ trì (Nhóm)</th>
+                                <th>Phối hợp</th>
+                                <th>Ngày giao</th>
+                                <th>Hạn chót</th>
+                                <th>Trạng thái</th>
+                                <th class="text-center">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tasks.length > 0 ? tasks.map(t => {
+                                const stKey = getTaskStatus(t);
+                                const st = CONSTANTS.STATUS[stKey] || CONSTANTS.STATUS.TODO;
+                                const assignees = getAssignees(t);
+                                const assigneeNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
+                                const collabCount = (t.collaborators || []).length;
+                                const pj = t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : 'Việc lẻ';
+                                
+                                return `
+                                <tr>
+                                    <td><span class="text-[10px] uppercase font-bold px-2 py-1 rounded border ${t.projectId ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-600 border-gray-100'}">${t.projectId ? 'Dự án' : 'Lẻ'}</span></td>
+                                    <td>
+                                        <div class="font-bold text-slate-700 hover:text-blue-600 cursor-pointer" onclick="viewTask('${t.id}')">${t.title}</div>
+                                        <div class="text-xs text-gray-500 truncate max-w-[200px]">${pj}</div>
+                                        ${t.extensionStatus === 'PENDING' ? '<span class="text-[10px] bg-yellow-100 text-yellow-700 px-1 rounded ml-1">Xin gia hạn</span>' : ''}
+                                    </td>
+                                    <td class="font-medium text-blue-900 truncate max-w-[150px]" title="${assigneeNames}">${assigneeNames}</td>
+                                    <td class="text-xs text-gray-500">${collabCount > 0 ? `+${collabCount} nhân sự` : '-'}</td>
+                                    <td>${t.startDate}</td>
+                                    <td>
+                                        <span class="${getTaskStatus(t)==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline}</span>
+                                    </td>
+                                    <td><span class="text-xs font-bold px-2 py-1 rounded bg-opacity-20 ${st.color.replace('bg-', 'text-').replace('text-white','')} ${st.color.replace('bg-', 'bg-').replace('text-white','').replace('500','100')}">${st.label}</span></td>
+                                    <td class="text-center">
+                                        <button onclick="viewTask('${t.id}')" class="text-blue-600 hover:bg-blue-50 p-1 rounded" title="Xem chi tiết"><i data-lucide="eye" width="16"></i></button>
+                                        ${isAdmin ? `
+                                            <button onclick="editTask('${t.id}')" class="text-amber-600 hover:bg-amber-50 p-1 rounded" title="Sửa"><i data-lucide="edit-3" width="16"></i></button>
+                                            <button onclick="deleteTask('${t.id}')" class="text-red-600 hover:bg-red-50 p-1 rounded" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>
+                                        ` : ''}
+                                    </td>
+                                </tr>
+                            `}).join('') : `<tr><td colspan="8" class="text-center py-8 text-gray-500">Không tìm thấy công việc phù hợp</td></tr>`}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        /* --- USERS --- */
+        const renderUsers = (el) => {
+            if (STATE.currentUser.role !== 'ADMIN') return el.innerHTML = '<p class="text-red-500">Truy cập bị từ chối</p>';
+            
+            el.innerHTML = `
+                 <div class="flex justify-end mb-4">
+                    <button onclick="openUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold flex items-center gap-2"><i data-lucide="user-plus"></i> Thêm Nhân sự mới</button>
+                </div>
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <table class="w-full amt-table text-left">
+                        <thead>
+                            <tr>
+                                <th>Mã NV</th>
+                                <th>Họ tên</th>
+                                <th>Username</th>
+                                <th>Đơn vị</th>
+                                <th>Vai trò</th>
+                                <th class="text-center">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${STATE.users.map(u => `
+                                <tr>
+                                    <td class="font-mono text-xs">${u.empCode}</td>
+                                    <td class="font-bold">${u.name}</td>
+                                    <td>${u.username}</td>
+                                    <td>${u.unit || '-'}</td>
+                                    <td><span class="px-2 py-0.5 rounded text-xs font-bold ${u.role==='ADMIN'?'bg-purple-100 text-purple-600':'bg-green-100 text-green-600'}">${u.role}</span></td>
+                                    <td class="text-center">
+                                        <button onclick="resetPass('${u.id}')" class="text-amber-600 p-1 hover:bg-amber-50" title="Reset Password"><i data-lucide="key" width="16"></i></button>
+                                        ${u.role !== 'ADMIN' || STATE.users.filter(x=>x.role==='ADMIN').length > 1 ? `<button onclick="deleteUser('${u.id}')" class="text-red-600 p-1 hover:bg-red-50" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>` : ''}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        /* --- REPORTS --- */
+        const renderReports = (el) => {
+            const data = STATE.tasks.map(t => {
+                const assignees = getAssignees(t);
+                const mainNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
+                const collabs = (t.collaborators || []).map(cid => STATE.users.find(x=>x.id===cid)?.name).join(', ');
+                const st = getTaskStatus(t);
+                return {
+                    "Mã việc": t.id,
+                    "Dự án": t.projectId ? (STATE.projects.find(p=>p.id===t.projectId)?.name) : "Việc lẻ",
+                    "Đầu việc": t.title,
+                    "Nội dung": t.description || '',
+                    "Chủ trì": mainNames,
+                    "Phối hợp": collabs,
+                    "Ngày giao": t.startDate,
+                    "Hạn chót": t.deadline,
+                    "Trạng thái": CONSTANTS.STATUS[st]?.label || st,
+                    "Kết quả TH": t.reportResult || '',
+                    "Vướng mắc": t.reportIssues || '',
+                    "Ghi chú của NV": t.reportNotes || ''
+                };
+            });
+
+            el.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-white p-6 rounded shadow flex flex-col items-center justify-center text-center">
+                        <i data-lucide="file-spreadsheet" class="text-green-600 w-12 h-12 mb-3"></i>
+                        <h3 class="font-bold text-lg mb-2">Báo cáo chi tiết Excel</h3>
+                        <p class="text-sm text-gray-500 mb-4">Xuất toàn bộ danh sách công việc và trạng thái chi tiết ra file Excel.</p>
+                        <button onclick='downloadExcel(${JSON.stringify(data)})' class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700">Tải về (.xlsx)</button>
+                    </div>
+                     <div class="bg-white p-6 rounded shadow flex flex-col items-center justify-center text-center">
+                        <i data-lucide="pie-chart" class="text-blue-600 w-12 h-12 mb-3"></i>
+                        <h3 class="font-bold text-lg mb-2">Báo cáo Tổng hợp</h3>
+                        <p class="text-sm text-gray-500 mb-4">Xem thống kê hiệu suất làm việc theo Nhân sự hoặc theo Dự án.</p>
+                        <button onclick="openSummaryReport()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700">Xem ngay</button>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded shadow p-4">
+                    <h3 class="font-bold mb-4">Xem nhanh danh sách</h3>
+                    <div class="overflow-auto max-h-96">
+                        <table class="w-full amt-table text-left">
+                            <thead class="sticky top-0 z-10 shadow-sm">
+                                <tr><th>Đầu việc</th><th>Chủ trì</th><th>Hạn chót</th><th>Trạng thái</th></tr>
+                            </thead>
+                            <tbody>
+                                ${data.map(r => `<tr><td>${r["Đầu việc"]}</td><td>${r["Chủ trì"]}</td><td>${r["Hạn chót"]}</td><td>${r["Trạng thái"]}</td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        /* --- SETTINGS --- */
+        const renderSettings = (el) => {
+            const u = STATE.currentUser;
+            el.innerHTML = `
+                <div class="max-w-2xl bg-white rounded shadow p-8 mx-auto">
+                    <h3 class="text-lg font-bold border-b pb-4 mb-6">Thông tin cá nhân</h3>
+                    <form id="profileForm" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Họ và tên</label>
+                                <input type="text" id="pName" class="w-full border p-2 rounded" value="${u.name}" ${u.role!=='ADMIN'?'disabled':''}>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Số điện thoại</label>
+                                <input type="text" id="pPhone" class="w-full border p-2 rounded" value="${u.phone||''}">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Email</label>
+                                <input type="email" id="pEmail" class="w-full border p-2 rounded" value="${u.email||''}">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Đơn vị / Phòng ban</label>
+                                <input type="text" id="pUnit" class="w-full border p-2 rounded" value="${u.unit||''}">
+                            </div>
+                        </div>
+                        <div class="flex justify-end pt-4">
+                            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded font-bold">Lưu thay đổi</button>
+                        </div>
+                    </form>
+
+                    <h3 class="text-lg font-bold border-b pb-4 mb-6 mt-10">Đổi mật khẩu</h3>
+                    <form id="passForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Mật khẩu mới</label>
+                            <input type="password" id="newPass" class="w-full border p-2 rounded">
+                        </div>
+                        <div class="flex justify-end pt-4">
+                            <button type="submit" class="bg-gray-800 text-white px-6 py-2 rounded font-bold">Cập nhật Mật khẩu</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            $('#profileForm').onsubmit = async (e) => {
+                e.preventDefault();
+                u.name = $('#pName').value;
+                u.phone = $('#pPhone').value;
+                u.email = $('#pEmail').value;
+                u.unit = $('#pUnit').value;
+                await DB.save();
+                Swal.fire('Thành công', 'Thông tin đã được cập nhật', 'success');
+                renderApp();
+            };
+
+            $('#passForm').onsubmit = async (e) => {
+                e.preventDefault();
+                const newP = $('#newPass').value;
+                if(newP.length < 4) return Swal.fire('Lỗi', 'Mật khẩu quá ngắn', 'warning');
+                u.password = newP;
+                await DB.save();
+                Swal.fire('Thành công', 'Mật khẩu đã được thay đổi', 'success');
+            };
+        };
+
+        // ==========================================
+        // 6. ACTIONS & MODALS
+        // ==========================================
+        
+        window.setTaskFilter = (key, val) => {
+            STATE.taskFilters[key] = val;
+            renderTasks($('#content'));
+        };
+
+        window.manualRefresh = async () => {
+            await DB.fetch();
+            renderContent(STATE.activePage);
+            const toast = Swal.mixin({
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 2000,
+                timerProgressBar: true
+            });
+            toast.fire({ icon: 'success', title: 'Đã cập nhật dữ liệu' });
+        };
+
         window.openTaskModal = (editId = null) => {
             const task = editId ? STATE.tasks.find(t => t.id === editId) : null;
+            
+            // Handle Assigned To Multiple (Checkbox Logic)
             const currentAssignees = task ? getAssignees(task) : [];
-            const assignChecks = STATE.users.filter(u=>u.role==='STAFF').map(u => `<label class="flex items-center space-x-2 text-sm p-1 hover:bg-gray-50 rounded cursor-pointer"><input type="checkbox" class="assign-checkbox w-4 h-4 text-blue-600" value="${u.id}" ${currentAssignees.includes(u.id)?'checked':''}> <span class="text-slate-700 font-medium">${u.name}</span></label>`).join('');
+            const assignChecks = STATE.users.filter(u=>u.role==='STAFF').map(u => {
+                const isChecked = currentAssignees.includes(u.id);
+                return `<label class="flex items-center space-x-2 text-sm p-1 hover:bg-gray-50 rounded cursor-pointer">
+                    <input type="checkbox" class="assign-checkbox w-4 h-4 text-blue-600" value="${u.id}" ${isChecked?'checked':''}>
+                    <span class="text-slate-700 font-medium">${u.name}</span>
+                </label>`
+            }).join('');
+
+            // Build Staff Checkboxes for Collaborators
             const currentCollabs = task?.collaborators || [];
-            const collabChecks = STATE.users.filter(u=>u.role==='STAFF').map(u => `<label class="flex items-center space-x-2 text-sm p-1 hover:bg-gray-50 rounded cursor-pointer"><input type="checkbox" class="collab-checkbox w-4 h-4 text-amber-600" value="${u.id}" ${currentCollabs.includes(u.id)?'checked':''}> <span class="text-slate-700">${u.name}</span></label>`).join('');
+            const collabChecks = STATE.users.filter(u=>u.role==='STAFF').map(u => `
+                <label class="flex items-center space-x-2 text-sm p-1 hover:bg-gray-50 rounded cursor-pointer">
+                    <input type="checkbox" class="collab-checkbox w-4 h-4 text-amber-600" value="${u.id}" ${currentCollabs.includes(u.id)?'checked':''}>
+                    <span class="text-slate-700">${u.name}</span>
+                </label>
+            `).join('');
+            
             Swal.fire({
-                title: editId ? 'Sửa công việc' : 'Giao việc mới', width: '700px',
-                html: `<div class="text-left space-y-3 p-1"><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-bold mb-1 text-gray-600">Loại hình công việc</label><select id="swal-type" class="swal2-input m-0 w-full h-10 text-sm" onchange="this.value==='project'?document.getElementById('pj-group').classList.remove('hidden'):document.getElementById('pj-group').classList.add('hidden')"><option value="adhoc" ${(!task?.projectId && STATE.activeProjectTab === 'ADHOC') ?'selected':''}>Việc lẻ (Ad-hoc)</option><option value="project" ${(task?.projectId || (STATE.activeProjectTab && STATE.activeProjectTab !== 'ADHOC'))?'selected':''}>Việc theo Dự án</option></select></div><div id="pj-group" class="${(!task?.projectId && STATE.activeProjectTab === 'ADHOC') ? 'hidden' : ''}"><label class="block text-xs font-bold mb-1 text-gray-600">Tên Dự án</label><input id="swal-pj" class="swal2-input m-0 w-full h-10 text-sm" list="project-list" placeholder="Chọn hoặc nhập dự án mới..." value="${task?.projectId ? STATE.projects.find(p=>p.id===task.projectId)?.name : (STATE.activeProjectTab !== 'ADHOC' ? STATE.projects.find(p=>p.id===STATE.activeProjectTab)?.name : '')}"><datalist id="project-list">${STATE.projects.map(p => `<option value="${p.name}"></option>`).join('')}</datalist></div></div><div><label class="block text-xs font-bold mb-1 text-gray-600">Tên đầu việc <span class="text-red-500">*</span></label><input id="swal-title" class="swal2-input m-0 w-full h-10 text-sm" placeholder="VD: Báo cáo tài chính Q1" value="${task?.title||''}"></div><div><label class="block text-xs font-bold mb-1 text-gray-600">Nội dung thực hiện</label><textarea id="swal-desc" class="swal2-textarea m-0 w-full text-sm h-24" placeholder="Mô tả chi tiết công việc...">${task?.description || ''}</textarea></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-bold mb-1 text-gray-600">Ngày giao việc</label><input type="date" id="swal-start" class="swal2-input m-0 w-full h-10 text-sm" value="${task?.startDate||new Date().toISOString().slice(0,10)}"></div><div><label class="block text-xs font-bold mb-1 text-gray-600">Thời hạn hoàn thành <span class="text-red-500">*</span></label><input type="date" id="swal-end" class="swal2-input m-0 w-full h-10 text-sm" value="${task?.deadline||''}"></div></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-xs font-bold mb-1 text-blue-800">Cá nhân/Nhóm chủ trì <span class="text-red-500">*</span></label><div class="border border-blue-200 rounded p-2 max-h-24 overflow-y-auto grid grid-cols-1 gap-1 custom-scroll bg-blue-50">${assignChecks}</div></div><div><label class="block text-xs font-bold mb-1 text-gray-600">Trạng thái</label><select id="swal-status" class="swal2-input m-0 w-full h-10 text-sm" ${!editId ? 'disabled' : ''}><option value="TODO" ${task?.status==='TODO'?'selected':''}>Mới tạo</option><option value="IN_PROGRESS" ${task?.status==='IN_PROGRESS'?'selected':''}>Đang thực hiện</option><option value="STUCK" ${task?.status==='STUCK'?'selected':''}>Vướng mắc</option><option value="COMPLETED" ${task?.status==='COMPLETED'?'selected':''}>Hoàn thành</option></select></div></div><div><label class="block text-xs font-bold mb-1 text-gray-600">Nhân sự phối hợp</label><div class="border rounded p-2 max-h-24 overflow-y-auto grid grid-cols-2 gap-x-4 custom-scroll bg-gray-50">${collabChecks}</div></div><div><label class="block text-xs font-bold mb-1 text-gray-600">Ghi chú (Của Admin)</label><textarea id="swal-note" class="swal2-textarea m-0 w-full text-sm h-16" placeholder="Ghi chú cho người thực hiện...">${task?.notes || ''}</textarea></div></div>`,
-                showCancelButton: true, confirmButtonText: 'Lưu công việc', cancelButtonText: 'Hủy', focusConfirm: false,
-                preConfirm: () => ({ title: $('#swal-title').value, desc: $('#swal-desc').value, type: $('#swal-type').value, pjName: $('#swal-pj').value, start: $('#swal-start').value, end: $('#swal-end').value, assign: Array.from(document.querySelectorAll('.assign-checkbox:checked')).map(el => el.value), collaborators: Array.from(document.querySelectorAll('.collab-checkbox:checked')).map(el => el.value), notes: $('#swal-note').value, status: editId ? $('#swal-status').value : 'TODO' })
+                title: editId ? 'Sửa công việc' : 'Giao việc mới',
+                width: '700px',
+                html: `
+                    <div class="text-left space-y-3 p-1">
+                        <div class="grid grid-cols-2 gap-3">
+                             <div>
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Loại hình công việc</label>
+                                <select id="swal-type" class="swal2-input m-0 w-full h-10 text-sm" onchange="this.value==='project'?document.getElementById('pj-group').classList.remove('hidden'):document.getElementById('pj-group').classList.add('hidden')">
+                                    <option value="adhoc" ${(!task?.projectId && STATE.activeProjectTab === 'ADHOC') ?'selected':''}>Việc lẻ (Ad-hoc)</option>
+                                    <option value="project" ${(task?.projectId || (STATE.activeProjectTab && STATE.activeProjectTab !== 'ADHOC'))?'selected':''}>Việc theo Dự án</option>
+                                </select>
+                            </div>
+                            <div id="pj-group" class="${(!task?.projectId && STATE.activeProjectTab === 'ADHOC') ? 'hidden' : ''}">
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Tên Dự án</label>
+                                <input id="swal-pj" class="swal2-input m-0 w-full h-10 text-sm" list="project-list" placeholder="Chọn hoặc nhập dự án mới..." 
+                                    value="${task?.projectId ? STATE.projects.find(p=>p.id===task.projectId)?.name : (STATE.activeProjectTab !== 'ADHOC' ? STATE.projects.find(p=>p.id===STATE.activeProjectTab)?.name : '')}">
+                                <datalist id="project-list">
+                                    ${STATE.projects.map(p => `<option value="${p.name}"></option>`).join('')}
+                                </datalist>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Tên đầu việc <span class="text-red-500">*</span></label>
+                            <input id="swal-title" class="swal2-input m-0 w-full h-10 text-sm" placeholder="VD: Báo cáo tài chính Q1" value="${task?.title||''}">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Nội dung thực hiện</label>
+                            <textarea id="swal-desc" class="swal2-textarea m-0 w-full text-sm h-24" placeholder="Mô tả chi tiết công việc...">${task?.description || ''}</textarea>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Ngày giao việc</label>
+                                <input type="date" id="swal-start" class="swal2-input m-0 w-full h-10 text-sm" value="${task?.startDate||new Date().toISOString().slice(0,10)}">
+                            </div>
+                             <div>
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Thời hạn hoàn thành <span class="text-red-500">*</span></label>
+                                <input type="date" id="swal-end" class="swal2-input m-0 w-full h-10 text-sm" value="${task?.deadline||''}">
+                            </div>
+                        </div>
+                        
+                         <div class="grid grid-cols-2 gap-3">
+                             <div>
+                                <label class="block text-xs font-bold mb-1 text-blue-800">Cá nhân/Nhóm chủ trì <span class="text-red-500">*</span></label>
+                                <div class="border border-blue-200 rounded p-2 max-h-24 overflow-y-auto grid grid-cols-1 gap-1 custom-scroll bg-blue-50">
+                                    ${assignChecks}
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold mb-1 text-gray-600">Trạng thái</label>
+                                <select id="swal-status" class="swal2-input m-0 w-full h-10 text-sm" ${!editId ? 'disabled' : ''}>
+                                    <option value="TODO" ${task?.status==='TODO'?'selected':''}>Mới tạo</option>
+                                    <option value="IN_PROGRESS" ${task?.status==='IN_PROGRESS'?'selected':''}>Đang thực hiện</option>
+                                    <option value="STUCK" ${task?.status==='STUCK'?'selected':''}>Vướng mắc</option>
+                                    <option value="COMPLETED" ${task?.status==='COMPLETED'?'selected':''}>Hoàn thành</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Nhân sự phối hợp</label>
+                            <div class="border rounded p-2 max-h-24 overflow-y-auto grid grid-cols-2 gap-x-4 custom-scroll bg-gray-50">
+                                ${collabChecks}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold mb-1 text-gray-600">Ghi chú (Của Admin)</label>
+                            <textarea id="swal-note" class="swal2-textarea m-0 w-full text-sm h-16" placeholder="Ghi chú cho người thực hiện...">${task?.notes || ''}</textarea>
+                        </div>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Lưu công việc',
+                cancelButtonText: 'Hủy',
+                focusConfirm: false,
+                preConfirm: () => {
+                    const assignees = Array.from(document.querySelectorAll('.assign-checkbox:checked')).map(el => el.value);
+                    const collabs = Array.from(document.querySelectorAll('.collab-checkbox:checked')).map(el => el.value);
+                    return {
+                        title: $('#swal-title').value,
+                        desc: $('#swal-desc').value,
+                        type: $('#swal-type').value,
+                        pjName: $('#swal-pj').value,
+                        start: $('#swal-start').value,
+                        end: $('#swal-end').value,
+                        assign: assignees,
+                        collaborators: collabs,
+                        notes: $('#swal-note').value,
+                        status: editId ? $('#swal-status').value : 'TODO'
+                    }
+                }
             }).then(async (result) => {
                 if (result.isConfirmed) {
                     const d = result.value;
                     if (!d.title || !d.end || d.assign.length === 0) return Swal.fire('Thiếu thông tin', 'Vui lòng nhập Tên việc, Hạn chót và Chọn ít nhất 1 người chủ trì', 'error');
+                    
                     let pjId = '';
                     if (d.type === 'project' && d.pjName) {
                         const existPj = STATE.projects.find(p => p.name === d.pjName);
                         if (existPj) pjId = existPj.id;
                         else {
-                            const newPj = { id: uuid(), name: d.pjName };
-                            await DB.saveDoc('projects', newPj.id, newPj);
-                            pjId = newPj.id;
+                            pjId = uuid();
+                            STATE.projects.push({ id: pjId, name: d.pjName });
                         }
                     }
-                    const taskId = editId || uuid();
-                    const taskData = { ...(editId ? task : {}), id: taskId, title: d.title, description: d.desc, projectId: pjId, startDate: d.start, deadline: d.end, assignedTo: d.assign, collaborators: d.collaborators, notes: d.notes, status: d.status, createdAt: task?.createdAt || new Date().toISOString() };
-                    await DB.saveDoc('tasks', taskId, taskData);
-                    await DB.fetch(true);
-                    if(STATE.activePage === 'projects') renderProjectBoard($('#content')); else renderTasks($('#content'));
+
+                    if (editId) {
+                        Object.assign(task, {
+                            title: d.title, 
+                            description: d.desc,
+                            projectId: pjId, 
+                            startDate: d.start, 
+                            deadline: d.end, 
+                            assignedTo: d.assign, // Array
+                            collaborators: d.collaborators,
+                            notes: d.notes,
+                            status: d.status
+                        });
+                    } else {
+                        STATE.tasks.push({
+                            id: uuid(), 
+                            title: d.title, 
+                            description: d.desc,
+                            projectId: pjId, 
+                            startDate: d.start, 
+                            deadline: d.end, 
+                            assignedTo: d.assign, // Array
+                            collaborators: d.collaborators,
+                            notes: d.notes,
+                            status: 'TODO', 
+                            createdAt: new Date().toISOString()
+                        });
+                    }
+                    await DB.save();
+                    if(STATE.activePage === 'projects') renderProjectBoard($('#content'));
+                    else renderTasks($('#content'));
                     Swal.fire('Thành công', 'Đã lưu công việc vào hệ thống', 'success');
                 }
             });
         };
+
         window.openUserModal = () => {
             Swal.fire({
-                title: 'Thêm nhân sự mới', html: `<div class="space-y-3"><input id="u-name" class="swal2-input w-full m-0" placeholder="Họ và tên"><input id="u-user" class="swal2-input w-full m-0" placeholder="Tên đăng nhập"><input id="u-pass" class="swal2-input w-full m-0" placeholder="Mật khẩu khởi tạo" type="password"><select id="u-role" class="swal2-input w-full m-0"><option value="STAFF">Nhân viên</option><option value="ADMIN">Quản trị viên</option></select></div>`,
-                showCancelButton: true, confirmButtonText: 'Tạo nhân sự',
-                preConfirm: () => ({ name: $('#u-name').value, user: $('#u-user').value, pass: $('#u-pass').value, role: $('#u-role').value })
+                title: 'Thêm nhân sự mới',
+                html: `
+                    <div class="space-y-3">
+                        <input id="u-name" class="swal2-input w-full m-0" placeholder="Họ và tên">
+                        <input id="u-user" class="swal2-input w-full m-0" placeholder="Tên đăng nhập">
+                        <input id="u-pass" class="swal2-input w-full m-0" placeholder="Mật khẩu khởi tạo" type="password">
+                        <select id="u-role" class="swal2-input w-full m-0">
+                            <option value="STAFF">Nhân viên</option>
+                            <option value="ADMIN">Quản trị viên</option>
+                        </select>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: 'Tạo nhân sự',
+                preConfirm: () => {
+                    return {
+                        name: $('#u-name').value,
+                        user: $('#u-user').value,
+                        pass: $('#u-pass').value,
+                        role: $('#u-role').value
+                    }
+                }
             }).then(async (res) => {
                 if (res.isConfirmed) {
-                    const d = res.value; if (!d.name || !d.user || !d.pass) return Swal.fire('Lỗi', 'Nhập thiếu thông tin', 'error');
-                    const newUser = { id: uuid(), empCode: generateEmpCode(), name: d.name, username: d.user, password: d.pass, role: d.role, isFirst: true, unit: 'AMATA' };
-                    await DB.saveDoc('users', newUser.id, newUser);
-                    await DB.fetch(true);
+                    const d = res.value;
+                    if (!d.name || !d.user || !d.pass) return Swal.fire('Lỗi', 'Nhập thiếu thông tin', 'error');
+                    
+                    const newUser = {
+                        id: uuid(),
+                        empCode: generateEmpCode(),
+                        name: d.name,
+                        username: d.user,
+                        password: d.pass,
+                        role: d.role,
+                        isFirst: true,
+                        unit: 'AMATA'
+                    };
+                    STATE.users.push(newUser);
+                    await DB.save();
                     renderUsers($('#content'));
                     Swal.fire('Thành công', `Đã tạo nhân sự mã: ${newUser.empCode}`, 'success');
                 }
             })
         };
+
         window.viewTask = (id) => {
-            const t = STATE.tasks.find(x => x.id === id); const assignees = getAssignees(t); const assignNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
-            const isMyTask = assignees.includes(STATE.currentUser.id) || (t.collaborators && t.collaborators.includes(STATE.currentUser.id)); const isAdmin = STATE.currentUser.role === 'ADMIN'; const collabNames = (t.collaborators || []).map(cid => STATE.users.find(us => us.id === cid)?.name).join(', ') || 'Không có';
+            const t = STATE.tasks.find(x => x.id === id);
+            const assignees = getAssignees(t);
+            const assignNames = assignees.map(id => STATE.users.find(u => u.id === id)?.name || 'N/A').join(', ');
+            
+            // Check if current user is owner or collaborator
+            const isMyTask = assignees.includes(STATE.currentUser.id) || (t.collaborators && t.collaborators.includes(STATE.currentUser.id));
+            const isAdmin = STATE.currentUser.role === 'ADMIN';
+            const collabNames = (t.collaborators || []).map(cid => STATE.users.find(us => us.id === cid)?.name).join(', ') || 'Không có';
+            
+            // Build Report Section based on Role
             let reportSection = '';
+            
             if (isMyTask && !isAdmin) {
-                reportSection = `<div class="bg-blue-50 p-4 rounded border border-blue-200 mt-4"><h4 class="font-bold text-blue-800 mb-3 border-b border-blue-200 pb-1 flex items-center gap-2"><i data-lucide="edit"></i> Báo cáo thực hiện</h4><div class="space-y-3"><div><label class="block text-xs font-bold text-gray-700 mb-1">Kết quả thực hiện:</label><textarea id="rpt-result" class="w-full text-sm p-2 border rounded h-16" placeholder="Nhập kết quả...">${t.reportResult || ''}</textarea></div><div><label class="block text-xs font-bold text-gray-700 mb-1">Vướng mắc / Đề xuất:</label><textarea id="rpt-issues" class="w-full text-sm p-2 border rounded h-16" placeholder="Nhập vướng mắc...">${t.reportIssues || ''}</textarea></div><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-bold text-gray-700 mb-1">Đề nghị gia hạn đến:</label><input type="date" id="rpt-ext" class="w-full text-sm p-2 border rounded" value="${t.extensionDate || ''}">${t.extensionStatus === 'PENDING' ? '<span class="text-[10px] text-orange-600 italic">Đang chờ duyệt</span>' : ''}${t.extensionStatus === 'APPROVED' ? '<span class="text-[10px] text-green-600 italic">Đã được duyệt</span>' : ''}${t.extensionStatus === 'REJECTED' ? '<span class="text-[10px] text-red-600 italic">Đã bị từ chối</span>' : ''}</div><div><label class="block text-xs font-bold text-gray-700 mb-1">Ghi chú cá nhân:</label><input type="text" id="rpt-note" class="w-full text-sm p-2 border rounded" value="${t.reportNotes || ''}"></div></div></div><div class="mt-4 pt-3 border-t border-blue-200"><button type="button" onclick="markCompleted('${t.id}')" class="w-full bg-green-600 text-white font-bold py-2 rounded hover:bg-green-700 transition flex items-center justify-center gap-2"><i data-lucide="check-circle"></i> ĐÃ HOÀN THÀNH</button><p class="text-[10px] text-center text-gray-500 mt-1">Bấm nút này để chốt hoàn thành công việc</p></div></div>`;
+                // User View: Input Fields
+                reportSection = `
+                    <div class="bg-blue-50 p-4 rounded border border-blue-200 mt-4">
+                        <h4 class="font-bold text-blue-800 mb-3 border-b border-blue-200 pb-1 flex items-center gap-2"><i data-lucide="edit"></i> Báo cáo thực hiện</h4>
+                        
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Kết quả thực hiện:</label>
+                                <textarea id="rpt-result" class="w-full text-sm p-2 border rounded h-16" placeholder="Nhập kết quả...">${t.reportResult || ''}</textarea>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Vướng mắc / Đề xuất:</label>
+                                <textarea id="rpt-issues" class="w-full text-sm p-2 border rounded h-16" placeholder="Nhập vướng mắc...">${t.reportIssues || ''}</textarea>
+                            </div>
+                             <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Đề nghị gia hạn đến:</label>
+                                    <input type="date" id="rpt-ext" class="w-full text-sm p-2 border rounded" value="${t.extensionDate || ''}">
+                                    ${t.extensionStatus === 'PENDING' ? '<span class="text-[10px] text-orange-600 italic">Đang chờ duyệt</span>' : ''}
+                                    ${t.extensionStatus === 'APPROVED' ? '<span class="text-[10px] text-green-600 italic">Đã được duyệt</span>' : ''}
+                                    ${t.extensionStatus === 'REJECTED' ? '<span class="text-[10px] text-red-600 italic">Đã bị từ chối</span>' : ''}
+                                </div>
+                                <div>
+                                     <label class="block text-xs font-bold text-gray-700 mb-1">Ghi chú cá nhân:</label>
+                                    <input type="text" id="rpt-note" class="w-full text-sm p-2 border rounded" value="${t.reportNotes || ''}">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- MARK COMPLETED BUTTON -->
+                         <div class="mt-4 pt-3 border-t border-blue-200">
+                             <button type="button" onclick="markCompleted('${t.id}')" class="w-full bg-green-600 text-white font-bold py-2 rounded hover:bg-green-700 transition flex items-center justify-center gap-2">
+                                <i data-lucide="check-circle"></i> ĐÃ HOÀN THÀNH
+                             </button>
+                             <p class="text-[10px] text-center text-gray-500 mt-1">Bấm nút này để chốt hoàn thành công việc</p>
+                        </div>
+                    </div>
+                `;
             } else {
-                reportSection = `<div class="bg-gray-100 p-4 rounded border border-gray-200 mt-4"><h4 class="font-bold text-gray-800 mb-3 border-b border-gray-300 pb-1 flex items-center gap-2"><i data-lucide="clipboard-list"></i> Báo cáo từ Nhân viên</h4><div class="space-y-2 text-sm"><p><strong class="text-gray-600">Kết quả:</strong> ${t.reportResult || '<span class="italic text-gray-400">Chưa có</span>'}</p><p><strong class="text-gray-600">Vướng mắc:</strong> ${t.reportIssues || '<span class="italic text-gray-400">Chưa có</span>'}</p><p><strong class="text-gray-600">Ghi chú NV:</strong> ${t.reportNotes || '<span class="italic text-gray-400">Chưa có</span>'}</p>${t.extensionDate ? `<div class="bg-white p-2 rounded border border-gray-200 mt-2"><strong class="text-gray-600">Yêu cầu gia hạn đến:</strong> <span class="font-bold text-blue-600">${t.extensionDate}</span><div class="mt-1">Trạng thái: ${t.extensionStatus === 'PENDING' ? '<span class="font-bold text-orange-500">Chờ duyệt</span>' : t.extensionStatus === 'APPROVED' ? '<span class="font-bold text-green-600">Đã duyệt</span>' : '<span class="font-bold text-red-600">Từ chối</span>'}${isAdmin && t.extensionStatus === 'PENDING' ? `<div class="mt-2 flex gap-2"><button onclick="approveExt('${t.id}', true)" class="bg-green-600 text-white text-xs px-2 py-1 rounded">Duyệt</button><button onclick="approveExt('${t.id}', false)" class="bg-red-600 text-white text-xs px-2 py-1 rounded">Từ chối</button></div>` : ''}</div></div>` : ''}</div></div>`;
+                // Admin or Viewer View: Read Only
+                reportSection = `
+                    <div class="bg-gray-100 p-4 rounded border border-gray-200 mt-4">
+                        <h4 class="font-bold text-gray-800 mb-3 border-b border-gray-300 pb-1 flex items-center gap-2"><i data-lucide="clipboard-list"></i> Báo cáo từ Nhân viên</h4>
+                        <div class="space-y-2 text-sm">
+                            <p><strong class="text-gray-600">Kết quả:</strong> ${t.reportResult || '<span class="italic text-gray-400">Chưa có</span>'}</p>
+                            <p><strong class="text-gray-600">Vướng mắc:</strong> ${t.reportIssues || '<span class="italic text-gray-400">Chưa có</span>'}</p>
+                            <p><strong class="text-gray-600">Ghi chú NV:</strong> ${t.reportNotes || '<span class="italic text-gray-400">Chưa có</span>'}</p>
+                            
+                            ${t.extensionDate ? `
+                                <div class="bg-white p-2 rounded border border-gray-200 mt-2">
+                                    <strong class="text-gray-600">Yêu cầu gia hạn đến:</strong> <span class="font-bold text-blue-600">${t.extensionDate}</span>
+                                    <div class="mt-1">
+                                        Trạng thái: 
+                                        ${t.extensionStatus === 'PENDING' ? '<span class="font-bold text-orange-500">Chờ duyệt</span>' : 
+                                          t.extensionStatus === 'APPROVED' ? '<span class="font-bold text-green-600">Đã duyệt</span>' : 
+                                          '<span class="font-bold text-red-600">Từ chối</span>'}
+                                        
+                                        ${isAdmin && t.extensionStatus === 'PENDING' ? `
+                                            <div class="mt-2 flex gap-2">
+                                                <button onclick="approveExt('${t.id}', true)" class="bg-green-600 text-white text-xs px-2 py-1 rounded">Duyệt</button>
+                                                <button onclick="approveExt('${t.id}', false)" class="bg-red-600 text-white text-xs px-2 py-1 rounded">Từ chối</button>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
             }
+
             const statusObj = CONSTANTS.STATUS[t.status] || CONSTANTS.STATUS.TODO;
+            
             Swal.fire({
-                title: `<span class="text-xl text-blue-800">${t.title}</span>`, width: '700px',
-                html: `<div class="text-left space-y-4 text-sm"><div class="bg-white p-3 rounded border border-gray-100 shadow-sm"><div class="grid grid-cols-2 gap-2 mb-2"><p><strong class="text-gray-600">Loại hình:</strong> ${t.projectId ? 'Dự án' : 'Việc lẻ'}</p><p><strong class="text-gray-600">Dự án:</strong> ${t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : '-'}</p></div><div class="grid grid-cols-2 gap-2"><p><strong class="text-gray-600">Ngày giao:</strong> ${t.startDate}</p><p><strong class="text-gray-600">Hạn chót:</strong> <span class="${getTaskStatus(t)==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline}</span></p></div></div><div><strong class="text-gray-700 block mb-1">Nội dung thực hiện:</strong><p class="whitespace-pre-line text-slate-800 bg-gray-50 p-2 border rounded min-h-[60px]">${t.description || 'Chưa có mô tả chi tiết'}</p></div><div class="grid grid-cols-2 gap-4"><div><strong class="text-gray-700 block mb-1">Chủ trì:</strong><span class="text-blue-700 font-bold bg-blue-50 px-2 py-1 rounded">${assignNames}</span></div><div><strong class="text-gray-700 block mb-1">Trạng thái:</strong><span class="px-2 py-1 rounded font-bold text-xs text-white ${statusObj.color.replace('bg-', 'bg-')}">${statusObj.label}</span></div></div><div><strong class="text-gray-700 block mb-1">Nhân sự phối hợp:</strong><p class="text-slate-600 italic">${collabNames}</p></div><div><strong class="text-gray-700 block mb-1">Ghi chú (Admin):</strong><p class="text-slate-500 italic text-xs">${t.notes || 'Không có ghi chú'}</p></div>${reportSection}</div>`,
-                showCancelButton: true, confirmButtonText: (isMyTask && !isAdmin) ? 'Lưu báo cáo' : 'Đóng', cancelButtonText: (isMyTask && !isAdmin) ? 'Hủy' : null, showConfirmButton: true,
-                preConfirm: () => { if (isMyTask && !isAdmin) return { res: $('#rpt-result').value, iss: $('#rpt-issues').value, note: $('#rpt-note').value, ext: $('#rpt-ext').value } }
+                title: `<span class="text-xl text-blue-800">${t.title}</span>`,
+                width: '700px',
+                html: `
+                    <div class="text-left space-y-4 text-sm">
+                        <div class="bg-white p-3 rounded border border-gray-100 shadow-sm">
+                            <div class="grid grid-cols-2 gap-2 mb-2">
+                                <p><strong class="text-gray-600">Loại hình:</strong> ${t.projectId ? 'Dự án' : 'Việc lẻ'}</p>
+                                <p><strong class="text-gray-600">Dự án:</strong> ${t.projectId ? STATE.projects.find(p=>p.id===t.projectId)?.name : '-'}</p>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <p><strong class="text-gray-600">Ngày giao:</strong> ${t.startDate}</p>
+                                <p><strong class="text-gray-600">Hạn chót:</strong> <span class="${getTaskStatus(t)==='OVERDUE'?'text-red-600 font-bold':''}">${t.deadline}</span></p>
+                            </div>
+                        </div>
+
+                        <div>
+                            <strong class="text-gray-700 block mb-1">Nội dung thực hiện:</strong>
+                            <p class="whitespace-pre-line text-slate-800 bg-gray-50 p-2 border rounded min-h-[60px]">${t.description || 'Chưa có mô tả chi tiết'}</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <strong class="text-gray-700 block mb-1">Chủ trì:</strong>
+                                <span class="text-blue-700 font-bold bg-blue-50 px-2 py-1 rounded">${assignNames}</span>
+                            </div>
+                             <div>
+                                <strong class="text-gray-700 block mb-1">Trạng thái:</strong>
+                                <span class="px-2 py-1 rounded font-bold text-xs text-white ${statusObj.color.replace('bg-', 'bg-')}">${statusObj.label}</span>
+                            </div>
+                        </div>
+                        
+                         <div>
+                            <strong class="text-gray-700 block mb-1">Nhân sự phối hợp:</strong>
+                            <p class="text-slate-600 italic">${collabNames}</p>
+                        </div>
+                        
+                         <div>
+                            <strong class="text-gray-700 block mb-1">Ghi chú (Admin):</strong>
+                            <p class="text-slate-500 italic text-xs">${t.notes || 'Không có ghi chú'}</p>
+                        </div>
+
+                        <!-- REPORTING SECTION -->
+                        ${reportSection}
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: (isMyTask && !isAdmin) ? 'Lưu báo cáo' : 'Đóng',
+                cancelButtonText: (isMyTask && !isAdmin) ? 'Hủy' : null,
+                showConfirmButton: true,
+                preConfirm: () => {
+                    if (isMyTask && !isAdmin) {
+                        return {
+                            res: $('#rpt-result').value,
+                            iss: $('#rpt-issues').value,
+                            note: $('#rpt-note').value,
+                            ext: $('#rpt-ext').value
+                        }
+                    }
+                }
             }).then(async (res) => {
                 if (res.isConfirmed && isMyTask && !isAdmin) {
-                    const d = res.value; t.reportResult = d.res; t.reportIssues = d.iss; t.reportNotes = d.note;
-                    if (d.ext && d.ext !== t.extensionDate) { t.extensionDate = d.ext; t.extensionStatus = 'PENDING'; }
-                    await DB.saveDoc('tasks', t.id, t);
+                    const d = res.value;
+                    t.reportResult = d.res;
+                    t.reportIssues = d.iss;
+                    t.reportNotes = d.note;
+                    if (d.ext && d.ext !== t.extensionDate) {
+                        t.extensionDate = d.ext;
+                        t.extensionStatus = 'PENDING';
+                    }
+                    await DB.save();
                     Swal.fire('Thành công', 'Đã lưu báo cáo thực hiện', 'success');
-                    if(STATE.activePage === 'projects') renderProjectBoard($('#content')); else renderTasks($('#content'));
+                    if(STATE.activePage === 'projects') renderProjectBoard($('#content'));
+                    else renderTasks($('#content'));
                 }
             });
         };
+
         window.markCompleted = async (id) => {
-            const currentRes = document.getElementById('rpt-result')?.value || ''; const currentIss = document.getElementById('rpt-issues')?.value || ''; const currentNote = document.getElementById('rpt-note')?.value || '';
-            const confirm = await Swal.fire({ title: 'Xác nhận hoàn thành', text: 'Hệ thống sẽ cập nhật trạng thái việc này là ĐÃ HOÀN THÀNH. Bạn có chắc chắn không?', icon: 'success', showCancelButton: true, confirmButtonColor: '#16a34a', confirmButtonText: 'Đồng ý, Hoàn thành ngay', cancelButtonText: 'Hủy' });
+            // Get values currently in the inputs before Swal closes
+            const resInput = document.getElementById('rpt-result');
+            const issInput = document.getElementById('rpt-issues');
+            const noteInput = document.getElementById('rpt-note');
+            
+            const currentRes = resInput ? resInput.value : '';
+            const currentIss = issInput ? issInput.value : '';
+            const currentNote = noteInput ? noteInput.value : '';
+
+            const confirm = await Swal.fire({
+                title: 'Xác nhận hoàn thành',
+                text: 'Hệ thống sẽ cập nhật trạng thái việc này là ĐÃ HOÀN THÀNH. Bạn có chắc chắn không?',
+                icon: 'success',
+                showCancelButton: true,
+                confirmButtonColor: '#16a34a',
+                confirmButtonText: 'Đồng ý, Hoàn thành ngay',
+                cancelButtonText: 'Hủy'
+            });
+
             if (confirm.isConfirmed) {
                 const t = STATE.tasks.find(x => x.id === id);
                 if(t) {
-                    t.status = 'COMPLETED'; if(currentRes) t.reportResult = currentRes; if(currentIss) t.reportIssues = currentIss; if(currentNote) t.reportNotes = currentNote;
-                    await DB.saveDoc('tasks', t.id, t);
+                    t.status = 'COMPLETED';
+                    // Save input data if user entered something
+                    if(currentRes) t.reportResult = currentRes;
+                    if(currentIss) t.reportIssues = currentIss;
+                    if(currentNote) t.reportNotes = currentNote;
+                    
+                    await DB.save();
                     Swal.fire('Tuyệt vời', 'Công việc đã được chuyển sang trạng thái Hoàn thành', 'success');
-                    if(STATE.activePage === 'projects') renderProjectBoard($('#content')); else renderTasks($('#content'));
+                    if(STATE.activePage === 'projects') renderProjectBoard($('#content'));
+                    else renderTasks($('#content'));
                 }
             }
         };
+
         window.approveExt = async (taskId, isApproved) => {
-            const t = STATE.tasks.find(x => x.id === taskId); if (!t) return;
-            if (isApproved) { t.deadline = t.extensionDate; t.extensionStatus = 'APPROVED'; Swal.fire('Đã duyệt', `Hạn chót mới là ${t.deadline}`, 'success'); }
-            else { t.extensionStatus = 'REJECTED'; Swal.fire('Đã từ chối', 'Không thay đổi hạn chót', 'info'); }
-            await DB.saveDoc('tasks', t.id, t);
+            const t = STATE.tasks.find(x => x.id === taskId);
+            if (!t) return;
+            
+            if (isApproved) {
+                t.deadline = t.extensionDate;
+                t.extensionStatus = 'APPROVED';
+                Swal.fire('Đã duyệt', `Hạn chót mới là ${t.deadline}`, 'success');
+            } else {
+                t.extensionStatus = 'REJECTED';
+                Swal.fire('Đã từ chối', 'Không thay đổi hạn chót', 'info');
+            }
+            await DB.save();
             renderTasks($('#content'));
         };
+
         window.editTask = (id) => openTaskModal(id);
+        
         window.deleteTask = (id) => {
             Swal.fire({title: 'Xóa việc này?', icon: 'warning', showCancelButton: true}).then(async (r) => {
-                if(r.isConfirmed) { await DB.deleteDoc('tasks', id); await DB.fetch(true); renderTasks($('#content')); }
+                if(r.isConfirmed) {
+                    STATE.tasks = STATE.tasks.filter(t => t.id !== id);
+                    await DB.save();
+                    renderTasks($('#content'));
+                }
             })
         };
+
         window.deleteUser = (id) => {
-            const adminCount = STATE.users.filter(u => u.role === 'ADMIN').length; const targetUser = STATE.users.find(u => u.id === id);
-            if (targetUser.role === 'ADMIN' && adminCount <= 1) return Swal.fire('Không thể xóa', 'Hệ thống cần ít nhất 1 tài khoản Quản trị viên (Admin)', 'error');
+            // Prevent deleting the last Admin
+            const adminCount = STATE.users.filter(u => u.role === 'ADMIN').length;
+            const targetUser = STATE.users.find(u => u.id === id);
+            
+            if (targetUser.role === 'ADMIN' && adminCount <= 1) {
+                return Swal.fire('Không thể xóa', 'Hệ thống cần ít nhất 1 tài khoản Quản trị viên (Admin)', 'error');
+            }
+
             Swal.fire({title: 'Xóa nhân sự này?', text: 'Hành động không thể phục hồi', icon: 'warning', showCancelButton: true}).then(async (r) => {
-                if(r.isConfirmed) { await DB.deleteDoc('users', id); await DB.fetch(true); renderUsers($('#content')); }
+                if(r.isConfirmed) {
+                    STATE.users = STATE.users.filter(u => u.id !== id);
+                    await DB.save();
+                    renderUsers($('#content'));
+                }
             })
         };
+
         window.resetPass = (id) => {
              Swal.fire({title: 'Reset mật khẩu?', text: 'Mật khẩu sẽ về mặc định: 123456', icon: 'warning', showCancelButton: true}).then(async (r) => {
                 if(r.isConfirmed) {
-                    const u = STATE.users.find(x => x.id === id); u.password = '123456'; u.isFirst = true;
-                    await DB.saveDoc('users', u.id, u);
+                    const u = STATE.users.find(x => x.id === id);
+                    u.password = '123456';
+                    u.isFirst = true;
+                    await DB.save();
                     Swal.fire('Thành công', 'Mật khẩu là: 123456', 'success');
                 }
             })
         };
+
         window.downloadExcel = (data) => {
-            const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "BaoCao"); XLSX.writeFile(wb, "Amata_Report.xlsx");
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "BaoCao");
+            XLSX.writeFile(wb, "Amata_Report.xlsx");
         };
-        window.openSummaryReport = () => { /* Logic không thay đổi, chỉ đọc STATE */ };
+
+        window.openSummaryReport = () => {
+            const getStats = (taskList) => {
+                const total = taskList.length;
+                const completed = taskList.filter(t => t.status === 'COMPLETED').length;
+                const overdue = taskList.filter(t => getTaskStatus(t) === 'OVERDUE').length;
+                const dueSoon = taskList.filter(t => isDueSoon(t)).length;
+                const rate = total ? Math.round((completed/total)*100) : 0;
+                return { total, completed, rate, dueSoon, overdue };
+            };
+
+            // 1. Calculate Staff Stats
+            const staffData = STATE.users.filter(u => u.role === 'STAFF').map(u => {
+                const myTasks = STATE.tasks.filter(t => {
+                    const assignees = getAssignees(t);
+                    return assignees.includes(u.id) || (t.collaborators && t.collaborators.includes(u.id));
+                });
+                return { name: u.name, ...getStats(myTasks) };
+            });
+
+            // 2. Calculate Project Stats
+            const projectData = STATE.projects.map(p => {
+                const pjTasks = STATE.tasks.filter(t => t.projectId === p.id);
+                return { name: p.name, ...getStats(pjTasks) };
+            });
+            // Add Ad-hoc
+            const adhocTasks = STATE.tasks.filter(t => !t.projectId);
+            projectData.push({ name: 'Công việc Lẻ (Ad-hoc)', ...getStats(adhocTasks) });
+
+            const createTable = (rows, labelCol) => `
+                <table class="w-full text-sm text-left border-collapse border border-slate-200">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="border border-slate-200 p-2">STT</th>
+                            <th class="border border-slate-200 p-2">${labelCol}</th>
+                            <th class="border border-slate-200 p-2 text-center">Tổng giao</th>
+                            <th class="border border-slate-200 p-2 text-center text-green-600">Hoàn thành</th>
+                            <th class="border border-slate-200 p-2 text-center">Tỷ lệ</th>
+                            <th class="border border-slate-200 p-2 text-center text-yellow-600">Sắp hết hạn</th>
+                            <th class="border border-slate-200 p-2 text-center text-red-600">Quá hạn</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((r, i) => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="border border-slate-200 p-2 text-center">${i+1}</td>
+                                <td class="border border-slate-200 p-2 font-bold text-slate-700">${r.name}</td>
+                                <td class="border border-slate-200 p-2 text-center">${r.total}</td>
+                                <td class="border border-slate-200 p-2 text-center font-bold text-green-600">${r.completed}</td>
+                                <td class="border border-slate-200 p-2 text-center">
+                                    <span class="px-2 py-1 rounded text-xs text-white ${r.rate >= 100 ? 'bg-green-500' : r.rate >= 50 ? 'bg-blue-500' : 'bg-gray-400'}">${r.rate}%</span>
+                                </td>
+                                <td class="border border-slate-200 p-2 text-center font-bold text-yellow-600">${r.dueSoon}</td>
+                                <td class="border border-slate-200 p-2 text-center font-bold text-red-600">${r.overdue}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+            Swal.fire({
+                title: 'BÁO CÁO TỔNG HỢP',
+                width: '900px',
+                html: `
+                    <div>
+                        <div class="flex border-b mb-4">
+                            <button class="tab-btn active flex-1" onclick="switchTab('staff')">Theo Nhân sự</button>
+                            <button class="tab-btn flex-1" onclick="switchTab('project')">Theo Dự án</button>
+                        </div>
+                        <div id="tab-staff" class="overflow-auto max-h-[500px]">
+                            ${createTable(staffData, 'Tên Nhân sự')}
+                        </div>
+                        <div id="tab-project" class="hidden overflow-auto max-h-[500px]">
+                            ${createTable(projectData, 'Tên Dự án')}
+                        </div>
+                    </div>
+                `,
+                showCloseButton: true,
+                showConfirmButton: false,
+                didOpen: () => {
+                    window.switchTab = (tab) => {
+                        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                        if (tab === 'staff') {
+                            document.querySelector('.tab-btn:first-child').classList.add('active');
+                            document.getElementById('tab-staff').classList.remove('hidden');
+                            document.getElementById('tab-project').classList.add('hidden');
+                        } else {
+                            document.querySelector('.tab-btn:last-child').classList.add('active');
+                            document.getElementById('tab-staff').classList.add('hidden');
+                            document.getElementById('tab-project').classList.remove('hidden');
+                        }
+                    }
+                }
+            });
+        };
+
         window.logout = () => {
             Swal.fire({title: 'Bạn muốn đăng xuất?', icon: 'question', showCancelButton: true}).then((r) => {
-                if(r.isConfirmed) { if (STATE.refreshTimer) clearInterval(STATE.refreshTimer); STATE.currentUser = null; sessionStorage.clear(); renderLogin(); }
+                if(r.isConfirmed) {
+                    if (STATE.refreshTimer) clearInterval(STATE.refreshTimer);
+                    STATE.currentUser = null;
+                    sessionStorage.clear();
+                    renderLogin();
+                }
             })
         };
 
         // ==========================================
-        // 7. DATA MIGRATION TOOL
-        // ==========================================
-        async function runDataMigration() {
-            const { value: file } = await Swal.fire({
-                title: 'Di chuyển dữ liệu sang Firebase',
-                text: 'Chọn file data_backup.json bạn đã lưu từ JSONBin.io (Bước 4).',
-                input: 'file',
-                inputAttributes: { 'accept': 'application/json', 'aria-label': 'Tải lên file backup' }
-            });
-
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    try {
-                        const data = JSON.parse(e.target.result);
-                        const collections = ['users', 'tasks', 'projects', 'personalTasks'];
-                        
-                        toggleLoader(true);
-                        const batch = firestore.batch();
-                        let totalDocs = 0;
-
-                        for (const collectionName of collections) {
-                            if (data[collectionName] && Array.isArray(data[collectionName])) {
-                                for (const doc of data[collectionName]) {
-                                    if(doc.id) { // Make sure doc has an ID from JSONBin
-                                       const docRef = firestore.collection(collectionName).doc(doc.id);
-                                       const dataToSet = { ...doc };
-                                       delete dataToSet.id; // Don't store ID as a field
-                                       batch.set(docRef, dataToSet);
-                                       totalDocs++;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        await batch.commit();
-                        toggleLoader(false);
-                        Swal.fire('Thành công!', `Đã di chuyển thành công ${totalDocs} bản ghi sang Firebase. Vui lòng đăng nhập lại.`, 'success').then(() => location.reload());
-
-                    } catch (err) {
-                        toggleLoader(false);
-                        Swal.fire('Lỗi!', 'File JSON không hợp lệ hoặc có lỗi khi ghi dữ liệu: ' + err.message, 'error');
-                    }
-                };
-                reader.readAsText(file);
-            }
-        }
-        
-        // ==========================================
-        // 8. BOOTSTRAP
+        // 7. BOOTSTRAP
         // ==========================================
         
         (async function init() {
+            // Check session Persistence
             const sessId = sessionStorage.getItem('session_user_id');
             if(sessId) {
                 toggleLoader(true);
+                // Attempt to fetch data first
                 await DB.fetch(); 
                 const user = STATE.users.find(u => u.id === sessId);
                 if(user) {
