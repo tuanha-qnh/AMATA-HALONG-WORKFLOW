@@ -703,6 +703,10 @@
                         <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
                             ${projects.find(p=>p.id===STATE.activeProjectTab)?.name}
                             <span class="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">${total} tasks</span>
+                            ${isAdmin && STATE.activeProjectTab !== 'ADHOC' ? `
+                                <button onclick="editProject('${STATE.activeProjectTab}')" class="text-amber-500 hover:text-amber-600 ml-2" title="Sửa tên dự án"><i data-lucide="edit-3" width="18"></i></button>
+                                <button onclick="deleteProject('${STATE.activeProjectTab}')" class="text-red-500 hover:text-red-600" title="Xóa dự án"><i data-lucide="trash-2" width="18"></i></button>
+                            ` : ''}
                         </h3>
                         <div class="w-full max-w-md mt-2 h-2 bg-gray-200 rounded-full overflow-hidden flex">
                             <div class="h-full bg-green-500" style="width: ${percent}%"></div>
@@ -727,7 +731,7 @@
                             <div class="p-3 w-[150px] border-r border-gray-200 text-center">Trạng thái</div>
                             <div class="p-3 w-[200px] border-r border-gray-200 text-center">Tiến độ / Hạn chót</div>
                             <div class="p-3 flex-1 border-r border-gray-200">Kết quả cập nhật</div>
-                            <div class="p-3 w-[80px] text-center">Thao tác</div>
+                            <div class="p-3 w-[120px] text-center">Thao tác</div>
                         </div>
 
                         <!-- Data Rows -->
@@ -793,11 +797,15 @@
                                     </div>
 
                                     <!-- Actions -->
-                                    <div class="p-2 w-[80px] flex items-center justify-center gap-1">
+                                    <div class="p-2 w-[120px] flex items-center justify-center gap-1">
                                         ${isAdmin && status !== 'COMPLETED' ? 
                                             `<button onclick="nudgeUser('${t.id}')" class="text-gray-400 hover:text-amber-500 p-1.5 rounded-full hover:bg-amber-50 transition" title="Đôn đốc / Nhắc nhở"><i data-lucide="bell" width="16"></i></button>` : ''
                                         }
-                                        <button onclick="viewTask('${t.id}')" class="text-gray-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50"><i data-lucide="more-horizontal" width="16"></i></button>
+                                        <button onclick="viewTask('${t.id}')" class="text-gray-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50" title="Chi tiết"><i data-lucide="eye" width="16"></i></button>
+                                        ${isAdmin ? `
+                                            <button onclick="editTask('${t.id}')" class="text-gray-400 hover:text-amber-600 p-1.5 rounded-full hover:bg-amber-50" title="Sửa"><i data-lucide="edit-3" width="16"></i></button>
+                                            <button onclick="deleteTask('${t.id}')" class="text-gray-400 hover:text-red-600 p-1.5 rounded-full hover:bg-red-50" title="Xóa"><i data-lucide="trash-2" width="16"></i></button>
+                                        ` : ''}
                                     </div>
                                 </div>
                             `;
@@ -1623,6 +1631,56 @@
             }
         };
 
+        window.editProject = async (id) => {
+            if (id === 'ADHOC') return;
+            const pj = STATE.projects.find(p => p.id === id);
+            if (!pj) return;
+
+            const { value: text } = await Swal.fire({
+                title: 'Sửa tên Dự án',
+                input: 'text',
+                inputValue: pj.name,
+                inputPlaceholder: 'Nhập tên dự án...',
+                showCancelButton: true
+            });
+            if (text && text !== pj.name) {
+                pj.name = text;
+                await DB.save();
+                renderProjectBoard($('#content'));
+                Swal.fire('Thành công', 'Đã cập nhật tên dự án', 'success');
+            }
+        };
+
+        window.deleteProject = async (id) => {
+            if (id === 'ADHOC') return;
+            const pj = STATE.projects.find(p => p.id === id);
+            if (!pj) return;
+
+            Swal.fire({
+                title: `Xóa dự án: ${pj.name}?`,
+                text: "Các công việc trong dự án này sẽ được chuyển thành 'Việc lẻ'.",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Xóa ngay',
+                cancelButtonText: 'Hủy'
+            }).then(async (result) => {
+                if (result.isConfirmed) {
+                    // Update tasks belonging to this project
+                    STATE.tasks.forEach(t => {
+                        if (t.projectId === id) t.projectId = null;
+                    });
+                    // Remove project
+                    STATE.projects = STATE.projects.filter(p => p.id !== id);
+                    STATE.activeProjectTab = 'ADHOC';
+                    await DB.save();
+                    renderProjectBoard($('#content'));
+                    Swal.fire('Đã xóa!', 'Dự án đã được xóa.', 'success');
+                }
+            });
+        };
+
         window.approveExt = async (taskId, isApproved) => {
             const t = STATE.tasks.find(x => x.id === taskId);
             if (!t) return;
@@ -1636,7 +1694,8 @@
                 Swal.fire('Đã từ chối', 'Không thay đổi hạn chót', 'info');
             }
             await DB.save();
-            renderTasks($('#content'));
+            if(STATE.activePage === 'projects') renderProjectBoard($('#content'));
+            else renderTasks($('#content'));
         };
 
         window.editTask = (id) => openTaskModal(id);
@@ -1646,7 +1705,8 @@
                 if(r.isConfirmed) {
                     STATE.tasks = STATE.tasks.filter(t => t.id !== id);
                     await DB.save();
-                    renderTasks($('#content'));
+                    if(STATE.activePage === 'projects') renderProjectBoard($('#content'));
+                    else renderTasks($('#content'));
                 }
             })
         };
