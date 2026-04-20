@@ -113,7 +113,7 @@
             projectBoardFilterMonth: '',
             lang: 'vi',
             refreshTimer: null,
-            taskFilters: { search: '', project: '', user: '', month: new Date().toISOString().slice(0, 7) }
+            taskFilters: { search: '', project: '', user: '', month: '' }
         };
 
         const DB = {
@@ -932,9 +932,9 @@
                 });
             }
 
-            // 5. Filter by Month
+            // 5. Filter by Month (on start date)
             if (filters.month) {
-                tasks = tasks.filter(t => t.deadline && t.deadline.startsWith(filters.month));
+                tasks = tasks.filter(t => t.startDate && t.startDate.startsWith(filters.month));
             }
             
             // Generate Project Options
@@ -976,8 +976,11 @@
                         </div>
                         ` : ''}
                         <div>
-                            <label class="text-[10px] font-bold text-gray-500 uppercase">Tháng</label>
-                            <input type="month" class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" value="${filters.month}" onchange="setTaskFilter('month', this.value)">
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Tháng giao việc</label>
+                            <div class="flex items-center gap-1">
+                                <input type="month" class="border p-2 rounded text-sm w-full md:w-40 outline-none focus:ring-1 focus:ring-blue-500 h-10" value="${filters.month}" onchange="setTaskFilter('month', this.value)">
+                                ${filters.month ? `<button onclick="setTaskFilter('month', ''); renderTasks($('#content'))" class="text-gray-400 hover:text-red-500" title="Bỏ lọc tháng"><i data-lucide="x" width="16"></i></button>` : ''}
+                            </div>
                         </div>
                     </div>
 
